@@ -327,8 +327,8 @@ var DOCTYPES = ['فاکتور رسمی خرید','فاکتور رسمی فروش
 
 function blank() {
   return {
-    settings: { shop: 'ابزارفروشی', owner: '', phone: '', address: '', taxRate: 10, theme: 'light' },
-    accounts: [], contacts: [], products: [], invoices: [], txns: [], budgets: [], docs: [],
+    settings: { shop: 'ابزارفروشی', owner: '', phone: '', address: '', taxRate: 10, theme: 'light', buyMarkup: 25, autoMargin: 20, addNewFromPurchase: true },
+    accounts: [], contacts: [], products: [], invoices: [], txns: [], budgets: [], docs: [], cheques: [],
     meta: { lastBackup: '', created: todayIso(), snapshots: [] }
   };
 }
@@ -444,6 +444,8 @@ function exportAllCsv() {
   S.invoices.forEach(function (i) { (i.items || []).forEach(function (it) { parts.push([i.no, it.desc || pName(it.productId), it.qty, it.price, it.discount, Math.max(0, num(it.qty) * num(it.price) - num(it.discount))]); }); });
   parts.push([], ['# تراکنش‌ها'], ['تاریخ شمسی','نوع','دسته','مبلغ','حساب','به حساب','طرف‌حساب','روش','شرح']);
   S.txns.forEach(function (t) { parts.push([isoToJ(t.date), t.type, t.cat, t.amount, aName(t.accountId), t.toAccountId ? aName(t.toAccountId) : '', t.contactId ? cName(t.contactId) : '', t.method, t.note]); });
+  parts.push([], ['# چک‌ها'], ['شماره','نوع','بانک','طرف‌حساب','سررسید شمسی','مبلغ','وضعیت']);
+  (S.cheques || []).forEach(function (c) { parts.push([c.no, c.kind, c.bank, cName(c.contactId), isoToJ(c.due), c.amount, c.status]); });
   parts.push([], ['# حساب‌ها'], ['نام','نوع','موجودی اولیه','موجودی فعلی']);
   S.accounts.forEach(function (a) { parts.push([a.name, a.type, a.opening, accBalance(a.id)]); });
   parts.push([], ['# طرف‌حساب‌ها'], ['نام','نوع','تلفن','آدرس']);
@@ -472,6 +474,8 @@ var NAV = [
   { k: 'dash', t: 'داشبورد', ic: '📊' },
   { k: 'invoices', t: 'فاکتورها', ic: '🧾' },
   { k: 'products', t: 'کالاها و انبار', ic: '🔧' },
+  { k: 'bulk', t: 'ورود گروهی کالا', ic: '📥' },
+  { k: 'cheques', t: 'چک‌ها و سررسید', ic: '💳' },
   { k: 'txns', t: 'درآمد و هزینه', ic: '💰' },
   { k: 'accounts', t: 'حساب‌ها', ic: '🏦' },
   { k: 'contacts', t: 'مشتری و تأمین‌کننده', ic: '👥' },
@@ -521,8 +525,9 @@ function render() {
     return '<button class="' + (VIEW === n.k ? 'active' : '') + '" data-action="' + (n.k === '__more' ? 'more' : 'go') + '" data-k="' + n.k + '"><span class="ic">' + n.ic + '</span>' + n.t + '</button>';
   }).join('');
   var m = el('main');
-  m.innerHTML = ({ dash: vDash, invoices: vInvoices, products: vProducts, txns: vTxns, accounts: vAccounts,
-    contacts: vContacts, budget: vBudget, docs: vDocs, reports: vReports, settings: vSettings })[VIEW]();
+  m.innerHTML = ({ dash: vDash, invoices: vInvoices, products: vProducts, bulk: vBulk, cheques: vCheques,
+    txns: vTxns, accounts: vAccounts, contacts: vContacts, budget: vBudget, docs: vDocs,
+    reports: vReports, settings: vSettings })[VIEW]();
   m.scrollTop = 0; window.scrollTo(0, 0);
 }
 
@@ -534,6 +539,12 @@ function vDash() {
     h += '<div class="banner"><span class="ic">💾</span><div><strong>امروز هنوز پشتیبان نگرفته‌اید.</strong>' +
       '<div class="muted small">' + (S.meta.lastBackup ? 'آخرین پشتیبان: ' + jLabel(S.meta.lastBackup) : 'تا کنون پشتیبانی تهیه نشده است') + '</div></div>' +
       '<div class="spacer"></div><button class="btn primary sm" data-action="backup">پشتیبان گیری</button></div>';
+  }
+  var chd = chqDueSoon();
+  if (chd.length) {
+    h += '<div class="banner"><span class="ic">💳</span><div><strong>' + faNum(chd.length) + ' چک تا ۷ روز آینده سررسید دارد.</strong>' +
+      '<div class="muted small">' + chd.slice(0, 3).map(function (c) { return esc(c.kind.split(' ')[0]) + ' ' + faNum(isoToJ(c.due)) + ' — ' + toman(c.amount); }).join(' • ') + '</div></div>' +
+      '<div class="spacer"></div><button class="btn sm" data-action="go" data-k="cheques">دیدن چک‌ها</button></div>';
   }
   h += header('داشبورد', jLabel(todayIso()) + ' • خلاصه وضعیت مالی مغازه',
     '<button class="btn primary" data-action="newInvoice" data-kind="فروش">+ فاکتور فروش</button>' +
@@ -632,7 +643,9 @@ function vProducts() {
     return true;
   });
   var h = header('کالاها و انبار', 'لیست قیمت، موجودی و حاشیه سود کالاهای مغازه',
-    '<button class="btn primary" data-action="newProduct">+ کالای جدید</button>');
+    '<button class="btn primary" data-action="newProduct">+ کالای جدید</button>' +
+    '<button class="btn" data-action="priceBump">️٪ افزایش گروهی قیمت</button>' +
+    '<button class="btn" data-action="go" data-k="bulk">📥 ورود گروهی</button>');
   h += '<div class="grid g3">' +
     kpi('ارزش موجودی (قیمت خرید)', toman(stockValue())) +
     kpi('ارزش موجودی (قیمت فروش)', toman(sum(S.products, function (p) { return num(p.stock) * num(p.sell); }))) +
@@ -844,6 +857,8 @@ function vSettings() {
     '<label class="f"><span>نام مالک</span><input id="stOwner" value="' + esc(s.owner) + '"></label>' +
     '<label class="f"><span>تلفن</span><input id="stPhone" value="' + esc(s.phone) + '"></label>' +
     '<label class="f"><span>نرخ پیش‌فرض مالیات (٪)</span><input id="stTax" value="' + esc(s.taxRate) + '" inputmode="decimal"></label>' +
+    '<label class="f"><span>درصد سود پیش‌فرض ورود کالا (٪)</span><input id="stMargin" value="' + esc(s.autoMargin) + '" inputmode="decimal"></label>' +
+    '<label class="f"><span>درصد سود پیش‌فرض فاکتور خرید (٪)</span><input id="stBuyMk" value="' + esc(s.buyMarkup) + '" inputmode="decimal"></label>' +
     '<label class="f" style="grid-column:1/-1"><span>آدرس</span><input id="stAddr" value="' + esc(s.address) + '"></label>' +
     '</div><button class="btn primary" data-action="saveSettings">ذخیره تنزیمات</button></div>';
   h += '<div class="card"><h3>پشتیبان‌گیری و خروجی</h3>' +
@@ -853,14 +868,142 @@ function vSettings() {
     '<div class="row"><button class="btn primary" data-action="backup">💾 خروجی پشتیبان (JSON)</button>' +
     '<button class="btn" data-action="exportCsv">📊 خروجی کامل اکسل (CSV)</button>' +
     '<button class="btn" data-action="restore">♻️ بازگردانی از فایل پشتیبان</button>' +
-    '<button class="btn danger" data-action="reset">🗑 پاک کردن همه اطلاعات</button></div></div>';
+    '<button class="btn danger" data-action="reset">🗑 پا�� کردن همه اطلاعات</button></div></div>';
   h += '<div class="card"><h3>راهنمای استفاده</h3><ol class="small" style="padding-inline-start:20px;margin:0">' +
     '<li>اول حساب‌ها (صندوق، بانک، کارتخوان) و موجودی اولیه را ثبت کنید.</li>' +
     '<li>کالاها را با قیمت خرید، قیمت فروش، موجودی و حد هشدار وارد کنید.</li>' +
-    '<li>هنگام فروش، فاکتور فروش بزنید — موجودی خودکار کم می‌شود.</li>' +
+    '<li>هنگام فروش، فاک��و�� فروش بزنید — موجودی خودکار کم می‌شود.</li>' +
     '<li>هنگام خرید از تأمین‌کننده، فاکتور خرید بزنید — موجودی اضافه می‌شود.</li>' +
     '<li>با دکمه «ثبت پرداخت» دریافت/پرداخت را ثبت کنید تا مانده حساب درست بماند.</li>' +
     '<li>هر روز پایان کار، پشتیبان بگیرید.</li></ol></div>';
+  return h;
+}
+
+/* ---------------- ورود گروهی کالا ---------------- */
+function mgPct() { var v = num(S.settings.autoMargin); return v || 20; }
+function rnd1000(v) { var r = Math.round(v / 1000) * 1000; return r > 0 ? r : Math.round(v); }
+function mgUp(buy) { return rnd1000(num(buy) * (1 + mgPct() / 100)); }
+function uniqList(a) { var o = []; a.forEach(function (x) { if (x && o.indexOf(x) < 0) o.push(x); }); return o; }
+var BK = 6;
+function bulkRowsHtml(n, from) {
+  var h = '', st = from || 0;
+  for (var i = st; i < st + n; i++) {
+    h += '<div class="itemrow">' +
+      '<span class="wide"><span class="lbl">نام کالا</span><input id="bkn' + i + '" placeholder="مانند: پیچ گوشتی چها��سو"></span>' +
+      '<span><span class="lbl">قیمت خرید</span><input id="bkb' + i + '" data-mg="buy" data-other="bks' + i + '" inputmode="decimal"></span>' +
+      '<span><span class="lbl">قیمت فروش</span><input id="bks' + i + '" data-mg="sell" data-other="bkb' + i + '" inputmode="decimal"></span>' +
+      '<span><span class="lbl">تعداد</span><input id="bkq' + i + '" inputmode="decimal"></span>' +
+      '<span><span class="lbl">دسته</span><select id="bkc' + i + '">' + opts(CATS, '', '—') + '</select></span>' +
+      '<span></span></div>';
+  }
+  return h;
+}
+function vBulk() {
+  var h = header('ورود گروهی کالا', 'افزودن چند کالا در یک مرحله — تایپ سریع، چسباندن از اکسل یا فایل CSV',
+    '<button class="btn" data-action="bulkSample">📄 دانلود فایل نمونه</button>');
+  h += '<div class="card"><h3>۱) ورود سریع (فقط اطلاعات مهم)</h3>' +
+    '<p class="small muted">نام کالا و قیمت خرید کافی است: قیمت فروش خودکار با ' + faNum(mgPct()) + '٪ سود پر می‌شود و قابل اصلاح است. اگر قیمت فروش را بزنید، قیمت خرید ' + faNum(mgPct()) + '٪ کمتر پیشنهاد می‌شود. با کلید Enter به فیلد بعدی بروید. درصد پیش‌فرض را در تنزیمات عوض کنید.</p>' +
+    '<div class="itemrow bkhead small muted"><span class="wide">نام کالا</span><span>قیمت خرید</span><span>قیمت فروش</span><span>تعداد</span><span>دسته</span><span></span></div>' +
+    '<div id="bkRows">' + bulkRowsHtml(BK) + '</div>' +
+    '<div class="row" style="margin-top:10px"><button class="btn sm" data-action="bulkMoreRows">+ ۵ ردیف بیشتر</button>' +
+    '<div class="spacer"></div><button class="btn primary" data-action="bulkSaveRows">ذخیره ردیف‌ها</button></div></div>';
+  h += '<div class="card"><h3>۲) ورود از اکسل</h3>' +
+    '<p class="small muted">در اکسل ستون‌ها را به این ترتیب بچینید: <span class="mono">نام کالا | قیمت خرید | قیمت فروش | تعداد | دسته | برند | کد | واحد | حد هشدار</span> — از ستون سوم به بعد اختیاری است. سپس یا فایل CSV را انتخاب کنید یا سلول‌ها را کپی کرده و در کادر پایین Paste کنید.</p>' +
+    '<label class="f"><span>فایل CSV (در اکسل Save as ← CSV)</span><input type="file" id="bkFile" accept=".csv,.txt,text/csv"></label>' +
+    '<label class="f" style="margin-top:10px"><span>یا محتوای کپی‌شده از اکسل</span><textarea id="bkText" rows="8" placeholder="دریل چکشی ۷۰۰ وات&#9;2800000&#9;3450000&#9;3"></textarea></label>' +
+    '<div class="row" style="margin-top:10px"><label class="row small" style="gap:6px"><input type="checkbox" id="bkMerge" checked> کالای هم‌نام به‌روزرسانی و موجودی جمع شود</label>' +
+    '<div class="spacer"></div><button class="btn primary" data-action="bulkImport">بررسی و افزودن</button></div></div>';
+  return h;
+}
+function bulkUpsert(d, merge) {
+  if (!d.name) return null;
+  var ex = null;
+  if (merge) for (var i = 0; i < S.products.length; i++) if (String(S.products[i].name).trim() === String(d.name).trim()) { ex = S.products[i]; break; }
+  if (ex) {
+    if (num(d.buy)) ex.buy = num(d.buy);
+    if (num(d.sell)) ex.sell = num(d.sell);
+    else if (num(d.buy) && num(ex.sell) < num(d.buy)) ex.sell = mgUp(d.buy);
+    ex.stock = num(ex.stock) + num(d.qty);
+    if (d.cat) ex.cat = d.cat;
+    if (d.brand) ex.brand = d.brand;
+    if (d.sku) ex.sku = d.sku;
+    if (d.unit) ex.unit = d.unit;
+    if (num(d.min)) ex.min = num(d.min);
+    return 'up';
+  }
+  S.products.push({ id: uid('prd'), name: String(d.name).trim(), sku: d.sku || '', cat: d.cat || CATS[0],
+    brand: d.brand || '', unit: d.unit || 'عدد', loc: '', buy: num(d.buy),
+    sell: num(d.sell) ? num(d.sell) : mgUp(d.buy), stock: num(d.qty), min: num(d.min) || 1 });
+  return 'new';
+}
+function bulkSaveRows() {
+  var nw = 0, up = 0;
+  for (var i = 0; i < BK; i++) {
+    var nm = el('bkn' + i) ? el('bkn' + i).value.trim() : '';
+    if (!nm) continue;
+    var r = bulkUpsert({ name: nm, buy: val('bkb' + i), sell: val('bks' + i), qty: val('bkq' + i), cat: val('bkc' + i) }, true);
+    if (r === 'new') nw++; else if (r === 'up') up++;
+  }
+  if (!nw && !up) return toast('حداقل نام یک کالا را وارد کنید');
+  BK = 6; save(); render();
+  toast(faNum(nw) + ' کالای جدید و ' + faNum(up) + ' کالای به‌روزشده ذخیره شد');
+}
+function bulkImport() {
+  var txt = el('bkText') ? el('bkText').value : '';
+  if (!txt.trim()) return toast('اول فایل را انتخاب کنید یا اطلاعات را بچسبانید');
+  var merge = el('bkMerge') ? el('bkMerge').checked : true;
+  var nw = 0, up = 0, bad = 0;
+  txt.split(/\r?\n/).forEach(function (line) {
+    if (!line.trim()) return;
+    var c = line.split(/\t|;|,/).map(function (x) { return x.replace(/^"|"$/g, '').trim(); });
+    if (!c[0]) return;
+    if (/نام کالا|name/i.test(c[0])) return;
+    if (c.length < 2 && !num(c[1])) { bad++; }
+    var r = bulkUpsert({ name: c[0], buy: c[1], sell: c[2], qty: c[3], cat: c[4], brand: c[5], sku: c[6], unit: c[7], min: c[8] }, merge);
+    if (r === 'new') nw++; else if (r === 'up') up++;
+  });
+  if (!nw && !up) return toast('چیزی برای افزودن پیدا نشد — ترتیب ستون‌ها را چک کنید');
+  save(); VIEW = 'products'; render();
+  toast(faNum(nw) + ' کالای جدید اضافه و ' + faNum(up) + ' کالا به‌روز شد');
+}
+function bulkSample() {
+  downloadBlob(csv([['نام کالا','قیمت خرید','قیمت فروش','تعداد','دسته','برند','کد','واحد','حد هشدار'],
+    ['دریل چکشی ۷۰۰ وات', 2800000, 3450000, 3, 'ابزار برقی', 'رونیکس', 'DR-700', 'عدد', 1],
+    ['پیچ گوشتی چهارسو', 85000, '', 20, 'ابزار دستی', '', '', 'عدد', 5]]),
+    'hesabyar-nemoone-kala.csv', 'text/csv');
+  toast('فایل نمونه دانلود شد — با اکسل باز کنید');
+}
+
+/* ---------------- چک‌ها ---------------- */
+var CHQ_KINDS = ['دریافتی (از مشتری)','پرداختی (به تأمین‌کننده)'];
+var CHQ_STATUS = ['در جریان','پاس شده','برگشتی','باطل شده'];
+function isoPlus(days) { var d = new Date(todayIso() + 'T00:00:00'); d.setDate(d.getDate() + days); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
+function chqOpen(kind) { return S.cheques.filter(function (c) { return c.status === 'در جریان' && (!kind || c.kind === kind); }); }
+function chqDueSoon() { var lim = isoPlus(7); return chqOpen().filter(function (c) { return c.due && c.due <= lim; }); }
+function vCheques() {
+  var h = header('چک‌ها و سررسید', 'چک‌های دریافتی و پرداختی مغازه',
+    '<button class="btn primary" data-action="newCheque">+ چک جدید</button>');
+  h += '<div class="grid g3">' +
+    kpi('چک‌های د��یافتی در جریان', toman(sum(chqOpen(CHQ_KINDS[0]), function (c) { return c.amount; })), 'pos', faNum(chqOpen(CHQ_KINDS[0]).length) + ' فقره') +
+    kpi('چک‌های پرداختی در جریان', toman(sum(chqOpen(CHQ_KINDS[1]), function (c) { return c.amount; })), 'neg', faNum(chqOpen(CHQ_KINDS[1]).length) + ' فقره') +
+    kpi('سررسید تا ۷ روز آینده', faNum(chqDueSoon().length) + ' فقره', chqDueSoon().length ? 'warn' : '', toman(sum(chqDueSoon(), function (c) { return c.amount; }))) +
+    '</div><div style="margin-top:16px"></div>';
+  var rows = S.cheques.slice().sort(function (a, b) { return (a.due || '') < (b.due || '') ? -1 : 1; }).map(function (c) {
+    var late = c.status === 'در جریان' && c.due && c.due < todayIso();
+    var cls = c.status === 'پاس شده' ? 'g' : (c.status === 'برگشتی' ? 'r' : (late ? 'r' : 'o'));
+    return '<tr><td>' + faNum(esc(c.no || '—')) + '<div class="muted small">' + esc(c.bank || '') + '</div></td>' +
+      '<td><span class="tag ' + (c.kind === CHQ_KINDS[0] ? 'g' : 'o') + '">' + esc(c.kind.split(' ')[0]) + '</span></td>' +
+      '<td>' + esc(cName(c.contactId)) + '</td>' +
+      '<td class="mono">' + faNum(isoToJ(c.due)) + (late ? '<div class="small" style="color:var(--red)">سررسید گذشته</div>' : '') + '</td>' +
+      '<td class="num">' + money(c.amount) + '</td>' +
+      '<td><span class="tag ' + cls + '">' + esc(c.status) + '</span></td>' +
+      '<td class="row">' + (c.status === 'در جریان' ? '<button class="btn sm primary" data-action="chequePass" data-id="' + c.id + '">پاس شد</button>' +
+        '<button class="btn sm" data-action="chequeBounce" data-id="' + c.id + '">برگشتی</button>' : '') +
+      '<button class="btn sm" data-action="editCheque" data-id="' + c.id + '">ویرایش</button>' +
+      '<button class="btn sm danger" data-action="delCheque" data-id="' + c.id + '">حذف</button></td></tr>';
+  });
+  h += table(['شماره / بانک','نوع','طرف‌حساب','سررسید','مبلغ','وضعیت','عملیات'], rows, 'چکی ثبت نشده است.');
+  h += '<p class="small muted" style="margin-top:10px">وقتی چک را «پاس شد» بزنید، خودکار در دفتر درآمد/هزینه و موجودی حساب هم ثبت می‌شود.</p>';
   return h;
 }
 
@@ -898,9 +1041,10 @@ function formProduct(p) {
     fld('نام کالا', 'pName', p.name) + fld('کد / بارکد', 'pSku', p.sku) +
     selFld('دسته', 'pCat', CATS, p.cat) + fld('برند', 'pBrand', p.brand) +
     selFld('واحد', 'pUnit', UNITS, p.unit) + fld('محل قرارگیری در مغازه', 'pLoc', p.loc) +
-    fld('قیمت خرید (تومان)', 'pBuy', p.buy, 'num') + fld('قیمت فروش (تومان)', 'pSell', p.sell, 'num') +
+    fld('قیمت خرید (تومان)', 'pBuy', p.buy, 'num', 'data-mg="buy" data-other="pSell"') +
+    fld('قیمت فروش (تومان)', 'pSell', p.sell, 'num', 'data-mg="sell" data-other="pBuy"') +
     fld('موجودی فعلی', 'pStock', p.stock, 'num') + fld('حد هشدار سفارش', 'pMin', p.min, 'num') +
-    '</div>', okBtn('saveProduct'));
+    '</div><p class="small muted">قیمت خرید را بزنید تا قیمت فروش خودکار با ' + faNum(mgPct()) + '٪ سود پر شود (و برعکس). با Enter به فیلد بعدی بروید.</p>', okBtn('saveProduct'));
 }
 function saveProduct() {
   if (!val('pName')) return toast('نام کالا را وارد کنید');
@@ -972,7 +1116,7 @@ function formTxn(t) {
     dateFld('تاریخ', 'tDate', t.date) +
     selFld('حساب', 'tAcc', S.accounts, t.accountId, S.accounts.length ? '' : 'اول یک حساب بسازید') +
     selFld('روش پرداخت', 'tMethod', METHODS, t.method) +
-    selFld('طرف‌حساب (اختیاری)', 'tContact', S.contacts, t.contactId, '—') +
+    selFld('طرف��حسا�� (اختیاری)', 'tContact', S.contacts, t.contactId, '—') +
     fld('شرح', 'tNote', t.note) +
     '</div><p class="small muted">برای تغییر لیست دسته‌ها، اول نوع را عوض کنید.</p>', okBtn('saveTxn'));
   el('tType').addEventListener('change', function () {
@@ -1001,7 +1145,7 @@ function formTransfer() {
 function saveTransfer() {
   var a = num(val('trAmount'));
   if (!a) return toast('مبلغ را وارد کنید');
-  if (val('trFrom') === val('trTo')) return toast('حساب مبدأ و مقصد باید متفاوت باشند');
+  if (val('trFrom') === val('trTo')) return toast('حساب مبدأ و مقصد ��اید متفاوت باشند');
   S.txns.push({ id: uid('txn'), type: 'انتقال', cat: 'انتقال داخلی', amount: a, date: readDate('trDate'),
     accountId: val('trFrom'), toAccountId: val('trTo'), method: 'انتقال بانکی', note: val('trNote') });
   save(); closeModal(); render(); toast('انتقال ثبت شد');
@@ -1069,6 +1213,10 @@ function formInvoice(inv, kind) {
     '</div>' +
     '<h3 style="margin:18px 0 8px">اقلام فاکتور</h3><div id="itemsBox"></div>' +
     '<button type="button" class="btn sm" data-action="itemAdd" style="margin-top:10px">+ افزودن قلم</button>' +
+    '<div id="newProdBox" class="card" style="margin-top:14px">' +
+    '<label class="row small" style="gap:6px"><input type="checkbox" id="iAddNew"' + (S.settings.addNewFromPurchase === false ? '' : ' checked') + '> کالاهای جدید این فاکتور به لیست کالاها اضافه شوند</label>' +
+    '<div class="fgrid" style="margin-top:8px">' + fld('درصد سود برای قیمت فروش کالاهای جدید (٪)', 'iMarkup', num(S.settings.buyMarkup) || 25, 'num') + '</div>' +
+    '<p class="small muted">قیمت خرید کالاهای موجود هم با قیمت این فاکتور به‌روز می‌شود. کالای جدید = ردیفی که از لیست انتخاب نشده و فقط شرح دستی دارد.</p></div>' +
     '<div class="fgrid" style="margin-top:16px">' + fld('تخفیف کل فاکتور (تومان)', 'iDiscount', D.discount, 'num') +
     fld('یادداشت روی فاکتور', 'iNote', D.note) + '</div>' +
     '<div id="invTot" class="totbox" style="margin-top:16px"></div>';
@@ -1084,7 +1232,7 @@ function drawItems() {
     return '<div class="itemrow' + (isSale ? '' : ' cost') + '">' +
       '<span class="wide"><span class="lbl">کالا</span><select data-item="productId" data-i="' + n + '">' +
         opts(S.products, it.productId, '— متفرقه / دستی —') + '</select>' +
-        '<input data-item="desc" data-i="' + n + '" value="' + esc(it.desc || '') + '" placeholder="شرح دستی (اگر کالا در لیست نیست)" style="margin-top:6px"></span>' +
+        '<input data-item="desc" data-i="' + n + '" value="' + esc(it.desc || '') + '" placeholder="شرح دستی (اگر کالا ��ر لیست نیست)" style="margin-top:6px"></span>' +
       '<span><span class="lbl">تعداد</span><input data-item="qty" data-i="' + n + '" value="' + esc(it.qty) + '" inputmode="decimal"></span>' +
       '<span><span class="lbl">قیمت واحد</span><input data-item="price" data-i="' + n + '" value="' + esc(it.price) + '" inputmode="decimal"></span>' +
       '<span><span class="lbl">تخفیف</span><input data-item="discount" data-i="' + n + '" value="' + esc(it.discount || 0) + '" inputmode="decimal"></span>' +
@@ -1093,6 +1241,7 @@ function drawItems() {
       '<span><button type="button" class="btn sm danger" data-action="itemDel" data-i="' + n + '">✕</button></span>' +
       '</div>';
   }).join('');
+  var np = el('newProdBox'); if (np) np.style.display = isSale ? 'none' : '';
   drawTotals();
 }
 function drawTotals() {
@@ -1123,14 +1272,33 @@ function saveInvoice() {
   o.due = jToIso(val('iDue')) || ''; o.contactId = val('iContact') || null;
   o.discount = num(val('iDiscount')); o.taxRate = num(val('iTax')); o.note = val('iNote');
   o.items = items; o.openingPaid = num(o.openingPaid);
+  var added = 0;
+  if (o.kind === 'خرید') {
+    var addNew = el('iAddNew') ? el('iAddNew').checked : true;
+    var mk = num(val('iMarkup')) || 25;
+    items.forEach(function (it) {
+      var pr = num(it.price);
+      if (it.productId) {
+        var ep = byId(S.products, it.productId);
+        if (ep && pr > 0) { ep.buy = pr; if (num(ep.sell) < pr) ep.sell = rnd1000(pr * (1 + mk / 100)); }
+        return;
+      }
+      if (!addNew || !it.desc) return;
+      var np2 = { id: uid('prd'), name: String(it.desc).trim(), sku: '', cat: CATS[0], brand: '', unit: 'عدد',
+        loc: '', buy: pr, sell: rnd1000(pr * (1 + mk / 100)), stock: 0, min: 1 };
+      S.products.push(np2); it.productId = np2.id; added++;
+    });
+    S.settings.buyMarkup = mk;
+    if (el('iAddNew')) S.settings.addNewFromPurchase = el('iAddNew').checked;
+  }
   if (!old) S.invoices.push(o);
   applyStock(o, 1);
   save(); closeModal(); render();
-  toast('فاکتور ' + o.no + ' ذخیره شد و موجودی به‌روز شد');
+  toast('فاکتور ' + o.no + ' ذخیره شد و موجودی به‌روز شد' + (added ? ' — ' + faNum(added) + ' کالای جدید هم به لیست کالاها افزوده شد' : ''));
 }
 function formPay(inv) {
   EDIT = inv.id;
-  var isSale = inv.kind.indexOf('فروش') > -1;
+  var isSale = inv.kind.indexOf('ف��وش') > -1;
   modal('ثبت ' + (isSale ? 'دریافت' : 'پرداخت') + ' — فاکتور ' + esc(inv.no),
     '<div class="totbox" style="margin-bottom:14px"><div><span>مبلغ کل</span><span class="mono">' + toman(invTotal(inv)) + '</span></div>' +
     '<div><span>پرداخت‌شده تا کنون</span><span class="mono">' + toman(invPaid(inv)) + '</span></div>' +
@@ -1182,6 +1350,84 @@ function printInvoice(inv) {
 }
 
 /* ================== رویدادها ================== */
+/* ---------- افزایش گروهی قیمت ---------- */
+function formPriceBump() {
+  var brands = uniqList(S.products.map(function (p) { return p.brand || ''; }));
+  modal('افزایش گروهی قیمت', '<div class="fgrid">' +
+    fld('درصد افزایش (٪)', 'bpPct', 10, 'num') +
+    selFld('اعمال روی', 'bpTarget', ['فقط قیمت فروش','قیمت خرید و فروش'], 'فقط قیمت فروش') +
+    selFld('محدوده — دسته', 'bpCat', CATS, '', 'همه دسته‌ها') +
+    selFld('محدوده — برند', 'bpBrand', brands, '', 'همه برندها') +
+    '</div>' +
+    '<label class="row small" style="gap:6px;margin-top:10px"><input type="checkbox" id="bpRound" checked> رُند کردن قیمت به ۱۰۰۰ تومان</label>' +
+    '<p class="small muted">برای کاهش قیمت عدد منفی بدهید، مانند -5. پیش از اعمال بهتر است یک پشتیبان بگیرید.</p>',
+    okBtn('savePriceBump', 'اعمال روی قیمت‌ها'));
+}
+function savePriceBump() {
+  var pct = num(val('bpPct'));
+  if (!pct) return toast('درصد را وارد کنید');
+  var both = val('bpTarget') === 'قیمت خرید و فروش';
+  var cat = val('bpCat'), br = val('bpBrand'), rd = el('bpRound') ? el('bpRound').checked : true;
+  var f = 1 + pct / 100, n = 0;
+  S.products.forEach(function (p) {
+    if (cat && p.cat !== cat) return;
+    if (br && (p.brand || '') !== br) return;
+    if (num(p.sell)) p.sell = rd ? rnd1000(num(p.sell) * f) : Math.round(num(p.sell) * f);
+    if (both && num(p.buy)) p.buy = rd ? rnd1000(num(p.buy) * f) : Math.round(num(p.buy) * f);
+    n++;
+  });
+  if (!n) return toast('کالایی در این محدوده پیدا نشد');
+  save(); closeModal(); VIEW = 'products'; render();
+  toast('قیمت ' + faNum(n) + ' کالا با ' + faNum(pct) + '٪ تغییر کرد');
+}
+
+/* ---------- چک ---------- */
+function formCheque(c) {
+  EDIT = c ? c.id : null;
+  c = c || { kind: CHQ_KINDS[0], status: 'در جریان', due: todayIso(), amount: '' };
+  modal(EDIT ? 'ویرایش چک' : 'چک جدید', '<div class="fgrid">' +
+    selFld('نوع چک', 'chKind', CHQ_KINDS, c.kind) +
+    fld('مبلغ (تومان)', 'chAmount', c.amount, 'num') +
+    fld('شماره چک', 'chNo', c.no) +
+    fld('بانک / شعبه', 'chBank', c.bank) +
+    dateFld('تاریخ سررسید', 'chDue', c.due) +
+    selFld('طرف‌حساب', 'chContact', S.contacts, c.contactId, '— انتخاب کنید —') +
+    selFld('وضعیت', 'chStatus', CHQ_STATUS, c.status) +
+    fld('یادداشت', 'chNote', c.note) +
+    '</div>', okBtn('saveCheque'));
+}
+function saveCheque() {
+  var a = num(val('chAmount'));
+  if (!a) return toast('مبلغ چک را وارد کنید');
+  var o = EDIT ? byId(S.cheques, EDIT) : { id: uid('chq') };
+  o.kind = val('chKind'); o.amount = a; o.no = val('chNo'); o.bank = val('chBank');
+  o.due = readDate('chDue'); o.contactId = val('chContact') || null;
+  o.status = val('chStatus') || 'در جریان'; o.note = val('chNote');
+  if (!EDIT) S.cheques.push(o);
+  save(); closeModal(); render(); toast('چک ذخیره شد');
+}
+function formChequePass(c) {
+  EDIT = c.id;
+  var isIn = c.kind === CHQ_KINDS[0];
+  modal('پاس شدن چک ' + faNum(esc(c.no || '')),
+    '<div class="totbox" style="margin-bottom:14px"><div class="big"><span>مبلغ</span><span class="mono">' + toman(c.amount) + '</span></div>' +
+    '<div><span>طرف‌حساب</span><span>' + esc(cName(c.contactId)) + '</span></div></div>' +
+    '<div class="fgrid">' + dateFld('تاریخ وصول', 'chpDate', todayIso()) +
+    selFld(isIn ? 'به کدام حساب واریز شد' : 'از کدام حساب پرداخت شد', 'chpAcc', S.accounts, (S.accounts[0] || {}).id) + '</div>',
+    okBtn('saveChequePass', 'ثبت پاس شدن'));
+}
+function saveChequePass() {
+  var c = byId(S.cheques, EDIT); if (!c) return closeModal();
+  if (!val('chpAcc')) return toast('اول یک حساب بسازید');
+  var isIn = c.kind === CHQ_KINDS[0];
+  var t = { id: uid('txn'), type: isIn ? 'درآمد' : 'هزینه', cat: isIn ? 'فروش کالا' : 'خرید کالا',
+    amount: num(c.amount), date: readDate('chpDate'), accountId: val('chpAcc'), method: 'چک',
+    contactId: c.contactId || null, note: 'وصول چک ' + (c.no || '') + (c.bank ? ' — ' + c.bank : '') };
+  S.txns.push(t);
+  c.status = 'پاس شده'; c.txnId = t.id;
+  save(); closeModal(); render(); toast('چک پاس شد و در دفتر درآمد/هزینه ثبت شد');
+}
+
 function moreMenu() {
   modal('بخش‌های بیشتر', '<div class="grid g2">' + NAV.slice(4).map(function (n) {
     return '<button class="btn" data-action="go" data-k="' + n.k + '" style="justify-content:flex-start">' + n.ic + ' ' + n.t + '</button>';
@@ -1206,6 +1452,20 @@ document.addEventListener('click', function (e) {
     case 'setToday': el(b.getAttribute('data-t')).value = isoToJ(todayIso()); break;
 
     case 'newProduct': formProduct(null); break;
+    case 'priceBump': formPriceBump(); break;
+    case 'savePriceBump': savePriceBump(); break;
+    case 'bulkSample': bulkSample(); break;
+    case 'bulkImport': bulkImport(); break;
+    case 'bulkSaveRows': bulkSaveRows(); break;
+    case 'bulkMoreRows': el('bkRows').insertAdjacentHTML('beforeend', bulkRowsHtml(5, BK)); BK += 5; break;
+
+    case 'newCheque': formCheque(null); break;
+    case 'editCheque': formCheque(byId(S.cheques, id)); break;
+    case 'chequePass': formChequePass(byId(S.cheques, id)); break;
+    case 'saveCheque': saveCheque(); break;
+    case 'saveChequePass': saveChequePass(); break;
+    case 'chequeBounce': var cb = byId(S.cheques, id); if (cb) { cb.status = 'برگشتی'; save(); render(); toast('چک برگشتی شد'); } break;
+    case 'delCheque': PENDING = { t: 'cheques', id: id }; confirmBox('این چک حذف شود؟', 'doDelete'); break;
     case 'editProduct': formProduct(byId(S.products, id)); break;
     case 'adjustStock': formStock(byId(S.products, id)); break;
     case 'delProduct': PENDING = { t: 'products', id: id }; confirmBox('این کالا حذف شود؟ اقلام فاکتورهای قبلی با شرح دستی باقی می‌مانند.', 'doDelete'); break;
@@ -1220,7 +1480,7 @@ document.addEventListener('click', function (e) {
     case 'quickContact': var kn = prompt('نام طرف‌حساب جدید:'); if (kn) {
         var nc = { id: uid('cnt'), name: kn, role: (val('iKind') || '').indexOf('فروش') > -1 ? 'مشتری' : 'تأمین‌کننده' };
         S.contacts.push(nc); save();
-        el('iContact').innerHTML = opts(S.contacts, nc.id, '— انتخاب کنید —'); toast('طرف‌حساب افزوده شد');
+        el('iContact').innerHTML = opts(S.contacts, nc.id, '— انتخاب کنید —'); toast('طرف‌حساب افزوده ��د');
       } break;
 
     case 'newTxn': formTxn(null); break;
@@ -1258,6 +1518,8 @@ document.addEventListener('click', function (e) {
     case 'saveSettings':
       S.settings.shop = val('stShop'); S.settings.owner = val('stOwner'); S.settings.phone = val('stPhone');
       S.settings.address = val('stAddr'); S.settings.taxRate = num(val('stTax'));
+      if (el('stMargin')) S.settings.autoMargin = num(val('stMargin')) || 20;
+      if (el('stBuyMk')) S.settings.buyMarkup = num(val('stBuyMk')) || 25;
       save(); render(); toast('تنزیمات ذخیره شد'); break;
 
     case 'doDelete':
@@ -1293,9 +1555,24 @@ document.addEventListener('input', function (e) {
     return;
   }
   if (t.hasAttribute && (t.hasAttribute('data-item') || t.id === 'iDiscount' || t.id === 'iTax')) { syncItems(); drawTotals(); }
+  if (t.hasAttribute && t.hasAttribute('data-mg')) {
+    t.removeAttribute('data-auto');
+    var o = el(t.getAttribute('data-other'));
+    if (o && num(t.value) && (o.value === '' || o.getAttribute('data-auto') === '1')) {
+      var pct = mgPct(), v = num(t.value);
+      o.value = rnd1000(t.getAttribute('data-mg') === 'buy' ? v * (1 + pct / 100) : v * (1 - pct / 100));
+      o.setAttribute('data-auto', '1');
+    }
+  }
 });
 document.addEventListener('change', function (e) {
   var t = e.target;
+  if (t.id === 'bkFile' && t.files && t.files[0]) {
+    var rd = new FileReader();
+    rd.onload = function () { if (el('bkText')) { el('bkText').value = String(rd.result || ''); toast('فایل خوانده شد — دکمه «بررسی و افزودن» را بزنید'); } };
+    rd.readAsText(t.files[0]);
+    return;
+  }
   if (t.hasAttribute && t.hasAttribute('data-item')) {
     var i = +t.getAttribute('data-i');
     if (t.getAttribute('data-item') === 'productId' && t.value) {
@@ -1307,7 +1584,24 @@ document.addEventListener('change', function (e) {
     }
   }
 });
-document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeModal(); });
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Escape') { closeModal(); return; }
+  if (e.key !== 'Enter' || e.ctrlKey || e.altKey || e.metaKey) return;
+  var t = e.target; if (!t || !t.tagName) return;
+  var tag = t.tagName.toLowerCase();
+  if (tag !== 'input' && tag !== 'select') return;
+  if (t.type === 'file' || t.type === 'checkbox' || t.type === 'radio') return;
+  e.preventDefault();
+  var scope = t.closest('.modal') || t.closest('#main') || document;
+  var fs = Array.prototype.filter.call(scope.querySelectorAll('input,select,textarea'), function (x) {
+    return !x.disabled && x.type !== 'hidden' && x.offsetParent !== null;
+  });
+  var i = fs.indexOf(t);
+  if (i > -1 && i + 1 < fs.length) { fs[i + 1].focus(); if (fs[i + 1].select) try { fs[i + 1].select(); } catch (er) {} return; }
+  var ov = t.closest('.overlay');
+  var sv = ov ? ov.querySelector('.mf .primary') : null;
+  if (sv) sv.focus();
+});
 
 /* ================== شروع ================== */
 load();
