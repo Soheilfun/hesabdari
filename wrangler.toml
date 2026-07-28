@@ -5,5 +5,4 @@ pages_build_output_dir = "public"
 [[d1_databases]]
 binding = "DB"
 database_name = "hesabyar"
-# شناسه‌ای که دستور «npx wrangler d1 create hesabyar» به شما می‌دهد را اینجا بگذارید
-database_id = "f8f70b1f-372b-4d2d-b3c2-1c02e95fd0a5"
+database_id = "26be07a9-62f4-4736-a14e-32f2176e40de"
