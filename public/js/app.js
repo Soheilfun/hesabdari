@@ -120,14 +120,6 @@ function render() {
   const root = $('#view-root');
   view.mount?.(root, ctx);
 
-  // رفتارهای مشترک صفحه
-  page.addEventListener('click', (e) => {
-    const go = e.target.closest('[data-go]');
-    if (go) writeHash(go.dataset.go);
-    const inv = e.target.closest('[data-new-invoice]');
-    if (inv) invoices.openForm(ctx, null);
-  });
-
   renderNav();
   document.title = `${view.title} — ${store.state.settings.shop || 'حساب‌یار'}`;
 }
@@ -170,6 +162,14 @@ function bindShell() {
     if (nav) writeHash(nav.dataset.route);
   });
 
+  // رفتارهای مشترک صفحه — یک‌بار ثبت می‌شود، نه در هر رندر
+  document.addEventListener('click', (e) => {
+    const go = e.target.closest('[data-go]');
+    if (go) writeHash(go.dataset.go);
+    const inv = e.target.closest('[data-new-invoice]');
+    if (inv) invoices.openForm(ctx, null);
+  });
+
   window.addEventListener('hashchange', () => { readHash(); render(); $('#page').focus(); });
 
   $('#theme-btn').addEventListener('click', () => {
@@ -202,7 +202,12 @@ function bindShell() {
   });
 
   store.addEventListener('status', (e) => renderSync(e.detail));
-  store.addEventListener('change', () => { if (!$('#app').classList.contains('is-hidden')) renderNav(); });
+  // با هر تغییر داده، صفحه فعلی هم تازه می‌شود (دیباونس برای عملیات گروهی)
+  store.addEventListener('change', debounce(() => {
+    if ($('#app').classList.contains('is-hidden')) return;
+    if ($('.scrim') || $('.dialog-scrim')) { renderNav(); return; } // هنگام باز بودن فرم فقط منو به‌روز شود
+    render();
+  }, 120));
   store.addEventListener('unauthorized', () => { auth.token = ''; showGate('ورود منقضی شده است؛ دوباره وارد شوید.'); });
 }
 

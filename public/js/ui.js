@@ -156,11 +156,20 @@ export function openDrawer({ title, body, submitLabel = 'ذخیره', extraActio
   document.body.appendChild(scrim);
   document.body.style.overflow = 'hidden';
   activeDrawer = scrim;
+  // اگر پنجره دیگری باز بود، اسکرول آن حفظ می‌شود؛ کشوی جدید باید از بالا باز شود
+  requestAnimationFrame(() => { scrim.scrollTop = 0; });
 
   const form = $('form', scrim);
+  let submitLock = false;
   const submit = () => {
-    const result = onSubmit?.(formValues(form), { form, close: closeDrawer });
-    if (result !== false) closeDrawer();
+    if (submitLock) return; // جلوگیری از ثبت دوباره (دابل‌کلیک / Enter پشت سر هم)
+    submitLock = true;
+    try {
+      const result = onSubmit?.(formValues(form), { form, close: closeDrawer });
+      if (result !== false) closeDrawer();
+    } finally {
+      submitLock = false;
+    }
   };
 
   scrim.addEventListener('click', (e) => {

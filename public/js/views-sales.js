@@ -154,17 +154,21 @@ function itemRowHtml(item = {}) {
   </div>`;
 }
 
-function readItems(form, state) {
+function readItems(form, state, keep = []) {
   return $$('[data-item]', form).map((row) => {
     const desc = $('[name=desc]', row).value.trim();
     const product = state.products.find((p) => p.name === desc);
+    const qty = num($('[name=qty]', row).value);
+    const price = num($('[name=price]', row).value);
+    // بها تمام‌شده قبلی (از خود فاکتور) حفظ می‌شود؛ در غیر این صورت قیمت خرید کالا
+    const prior = keep.find((k) => k.desc === desc && num(k.qty) === qty && num(k.price) === price);
     return {
       desc,
-      productId: product?.id || '',
-      qty: num($('[name=qty]', row).value),
-      price: num($('[name=price]', row).value),
+      productId: product?.id || prior?.productId || '',
+      qty,
+      price,
       discount: num($('[name=discount]', row).value),
-      cost: product ? num(product.buy) : 0,
+      cost: prior && num(prior.cost) ? num(prior.cost) : (product ? num(product.buy) : 0),
     };
   }).filter((it) => it.desc && it.qty > 0);
 }
@@ -173,9 +177,10 @@ function openInvoiceForm(ctx, invoice) {
   const { state, store } = ctx;
   const settings = state.settings;
   const inv = invoice || {
-    no: nextInvoiceNo(state), kind: 'فروش', date: todayIso(), due: isoPlusDays(0),
+    no: nextInvoiceNo(state), kind: 'فروش', date: todayIso(), due: todayIso(),
     contactId: '', discount: 0, taxRate: 0, openingPaid: 0, items: [{}], note: '',
   };
+  const isEdit = !!invoice;
 
   openDrawer({
     title: invoice ? `ویرایش فاکتور #${faNum(inv.no)}` : 'فاکتور جدید',
@@ -183,6 +188,7 @@ function openInvoiceForm(ctx, invoice) {
     submitLabel: 'ذخیره فاکتور',
     body: `
       <datalist id="product-list">${state.products.map((p) => `<option value="${esc(p.name)}"></option>`).join('')}</datalist>
+      ${isEdit ? `<div class="banner" data-tone="blue" style="margin-bottom:var(--sp-3)"><span class="ico" aria-hidden="true">${icon('info')}</span><div>در حالت ویرایش، موجودی کالاها دوباره تغییر نمی‌کند و پرداخت‌های ثبت‌شده حفظ می‌شود.</div></div>` : ''}
       <div class="form-grid">
         ${select('kind', 'نوع فاکتور', INVOICE_KINDS, inv.kind)}
         ${text('no', 'شماره فاکتور', inv.no)}
@@ -275,14 +281,14 @@ function openInvoiceForm(ctx, invoice) {
     },
 
     onSubmit(values, { form }) {
-      const items = readItems(form, state);
+      const items = readItems(form, state, isEdit ? (invoice.items || []) : []);
       if (!items.length) { toast('حداقل یک ردیف کالا لازم است.', 'red'); return false; }
 
       const isPurchase = values.kind === 'خرید';
       const markup = num(values.markup) || settings.buyMarkup;
 
       // افزودن/به‌روزرسانی کالاها از فاکتور خرید
-      if (isPurchase && values.addToProducts && !invoice) {
+      if (isPurchase && values.addToProducts && !isEdit) {
         items.forEach((it) => {
           const existing = state.products.find((p) => p.name === it.desc);
           if (existing) {
@@ -302,10 +308,11 @@ function openInvoiceForm(ctx, invoice) {
       }
 
       // کسر موجودی در فروش
-      if (values.kind === 'فروش' && !invoice) {
+      if ((values.kind === 'فروش' || values.kind === 'مرجوعی فروش') && !isEdit) {
+        const sign = values.kind === 'فروش' ? -1 : 1;
         items.forEach((it) => {
           const product = state.products.find((p) => p.id === it.productId);
-          if (product) store.put('product', { ...product, stock: num(product.stock) - it.qty });
+          if (product) store.put('product', { ...product, stock: num(product.stock) + sign * it.qty });
         });
       }
 
@@ -313,15 +320,18 @@ function openInvoiceForm(ctx, invoice) {
         id: inv.id, no: values.no || nextInvoiceNo(state), kind: values.kind,
         date: values.date || todayIso(), due: values.due || values.date,
         contactId: values.contactId, discount: num(values.discount), taxRate: num(values.taxRate),
-        openingPaid: 0, items, note: values.note,
+        // پرداخت‌های قبلی (تراکنش‌های مرتبط) حفظ می‌شود؛ openingPaid فقط برای صدور جدید است
+        openingPaid: isEdit ? num(invoice.openingPaid) : 0, items, note: values.note,
       });
 
       const paid = num(values.openingPaid);
-      if (paid > 0) {
+      if (paid > 0 && !isEdit) {
+        // مرجوعی فروش یعنی برگشت وجه به مشتری (هزینه) و مرجوعی خرید یعنی بازپس‌گیری وجه (درآمد)
+        const isExpense = values.kind === 'خرید' || values.kind === 'مرجوعی فروش';
         store.put('txn', {
           date: values.date || todayIso(),
-          type: values.kind === 'خرید' ? 'هزینه' : 'درآمد',
-          cat: values.kind === 'خرید' ? 'خرید کالا' : 'فروش کالا',
+          type: isExpense ? 'هزینه' : 'درآمد',
+          cat: isPurchase ? 'خرید کالا' : 'فروش کالا',
           amount: paid, accountId: values.payAccountId, contactId: values.contactId,
           method: values.payMethod, note: `فاکتور #${saved.no}`, invoiceId: saved.id,
         });
@@ -381,7 +391,7 @@ export const invoices = {
     const kind = ctx.params.kind || 'همه';
     const list = state.invoices
       .filter((i) => kind === 'همه' || i.kind === kind)
-      .filter((i) => !query || `${i.no} ${contactName(state, i.contactId)} ${i.note || ''}`.includes(query))
+      .filter((i) => !query || `${i.no || ''} ${contactName(state, i.contactId)} ${i.note || ''}`.includes(query))
       .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
 
     const rows = list.map((inv) => {
@@ -530,7 +540,7 @@ export const products = {
     const cat = ctx.params.cat || 'همه';
     const list = state.products
       .filter((p) => cat === 'همه' || p.cat === cat)
-      .filter((p) => !query || `${p.name} ${p.sku} ${p.brand}`.includes(query))
+      .filter((p) => !query || `${p.name || ''} ${p.sku || ''} ${p.brand || ''}`.includes(query))
       .sort((a, b) => String(a.name).localeCompare(String(b.name), 'fa'));
 
     const rows = list.map((p) => {
@@ -681,10 +691,22 @@ export const bulk = {
         let added = 0;
         let updated = 0;
         items.forEach((p) => {
-          const existing = merge && ctx.state.products.find((x) => x.name === p.name || (p.sku && x.sku === p.sku));
+          const existing = merge && ctx.state.products.find((x) => x.name === p.name || (p.sku && x.sku && x.sku === p.sku));
           const sell = p.sell || roundTo(p.buy * (1 + margin / 100));
           if (existing) {
-            ctx.store.put('product', { ...existing, ...p, sell, stock: num(p.stock) || num(existing.stock) });
+            // فقط فیلدهای پرشده بازنویسی می‌شوند تا اطلاعات قبلی پاک نشود
+            ctx.store.put('product', {
+              ...existing,
+              name: p.name || existing.name,
+              sku: p.sku || existing.sku,
+              cat: p.cat || existing.cat,
+              unit: p.unit || existing.unit,
+              buy: num(p.buy) || num(existing.buy),
+              sell,
+              stock: num(p.stock) || num(existing.stock),
+              min: num(p.min) || num(existing.min),
+            });
+            updated += 1;
             updated += 1;
           } else {
             ctx.store.put('product', { ...p, sell, brand: '', loc: '' });
@@ -698,8 +720,11 @@ export const bulk = {
       }
 
       if (e.target.closest('[data-sample]')) {
+        // سطرها با خط جدید واقعی جدا می‌شوند، نه متن «\n»
         download('hesabyar-nemoone-kala.csv',
-          `${BULK_HEADER}\nدریل بتون‌کن کارتن,DR-100,ابزار برقی,عدد,3200000,4000000,4,1\nپیچ خودکار ۴۰میلی,SC-40,پیچ و مهره,بسته,45000,60000,30,5`,
+          [BULK_HEADER,
+            'دریل بتون‌کن کارتن,DR-100,ابزار برقی,عدد,3200000,4000000,4,1',
+            'پیچ خودکار ۴۰میلی,SC-40,پیچ و مهره,بسته,45000,60000,30,5'].join('\n'),
           'text/csv;charset=utf-8');
       }
     });

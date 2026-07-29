@@ -1,5 +1,5 @@
 /* Service worker — پوسته برنامه آفلاین کار می‌کند؛ درخواست‌های API هرگز کش نمی‌شوند. */
-const CACHE = 'hesabyar-shell-v2';
+const CACHE = 'hesabyar-shell-v3';
 const SHELL = [
   '/', '/index.html', '/assets/app.css', '/manifest.webmanifest',
   '/js/app.js', '/js/core.js', '/js/data.js', '/js/ui.js',
@@ -25,8 +25,11 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     fetch(event.request)
       .then((res) => {
-        const copy = res.clone();
-        caches.open(CACHE).then((c) => c.put(event.request, copy)).catch(() => {});
+        // فقط پاسخ‌های موفق کش می‌شوند تا خطاها جای محتوای سالم را نگیرند
+        if (res && res.ok && res.type === 'basic') {
+          const copy = res.clone();
+          caches.open(CACHE).then((c) => c.put(event.request, copy)).catch(() => {});
+        }
         return res;
       })
       .catch(() => caches.match(event.request).then((hit) => hit || caches.match('/index.html'))),

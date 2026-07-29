@@ -45,6 +45,12 @@ const b64url = (bytes) =>
   btoa(String.fromCharCode(...new Uint8Array(bytes)))
     .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
+/** بازگرداندن padding به base64url تا atob همیشه کار کند */
+const b64urlDecode = (str) => {
+  const b64 = str.replace(/-/g, '+').replace(/_/g, '/');
+  return b64 + '='.repeat((4 - (b64.length % 4)) % 4);
+};
+
 async function hmac(secret, message) {
   const key = await crypto.subtle.importKey(
     'raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
@@ -77,7 +83,7 @@ async function verifyToken(env, token) {
   const expected = await hmac(env.AUTH_SECRET, payload);
   if (!safeEqual(sig, expected)) return null;
   try {
-    const body = JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/')));
+    const body = JSON.parse(atob(b64urlDecode(payload)));
     if (!body.exp || body.exp < Date.now()) return null;
     return body;
   } catch {
@@ -113,7 +119,7 @@ const rowToRecord = (r) => ({
 
 async function changesSince(env, since) {
   const { results } = await env.DB
-    .prepare('SELECT * FROM records WHERE updated_at > ? ORDER BY updated_at ASC LIMIT 5000')
+    .prepare('SELECT * FROM records WHERE updated_at > ? ORDER BY updated_at ASC LIMIT 50000')
     .bind(Number(since) || 0)
     .all();
   return (results || []).map(rowToRecord);

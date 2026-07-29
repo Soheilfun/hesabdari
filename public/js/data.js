@@ -166,18 +166,21 @@ class Store extends EventTarget {
   put(type, record) {
     const collection = COLLECTIONS[type];
     const now = Date.now();
-    const item = { ...record, id: record.id || uid(type), updatedAt: now };
+    // updatedAt فراداده است و نباید داخل خود رکورد ذخیره/ارسال شود
+    const { updatedAt: _drop, ...clean } = record || {};
+    const item = { ...clean, id: clean.id || uid(type), updatedAt: now };
 
     if (type === 'settings') {
-      this.state.settings = { ...this.state.settings, ...item, id: 'settings' };
+      this.state.settings = { ...this.state.settings, ...clean, id: 'settings' };
     } else {
       const list = this.state[collection];
       const index = list.findIndex((x) => x.id === item.id);
-      if (index >= 0) list[index] = { ...list[index], ...item };
+      if (index >= 0) list[index] = { ...list[index], ...clean, id: item.id };
       else list.unshift(item);
     }
 
-    this._queue({ id: item.id, type, data: type === 'settings' ? this.state.settings : item, updatedAt: now });
+    const data = type === 'settings' ? this.state.settings : clean;
+    this._queue({ id: item.id, type, data: { ...data, id: item.id }, updatedAt: now });
     this._afterMutation();
     return item;
   }
@@ -216,9 +219,14 @@ class Store extends EventTarget {
     let touched = false;
 
     for (const rec of records) {
+      // تغییر محلی‌ای که هنوز ارسال نشده باشد را بازنویسی نمی‌کنیم
+      const pending = this.outbox.some((o) => o.id === rec.id);
+
       if (rec.type === 'settings') {
-        if (!rec.deleted) this.state.settings = { ...DEFAULT_SETTINGS, ...rec.data, id: 'settings' };
-        touched = true;
+        if (!rec.deleted && !pending) {
+          this.state.settings = { ...DEFAULT_SETTINGS, ...rec.data, id: 'settings' };
+          touched = true;
+        }
         continue;
       }
       const collection = COLLECTIONS[rec.type];
@@ -227,14 +235,14 @@ class Store extends EventTarget {
       const index = list.findIndex((x) => x.id === rec.id);
 
       if (rec.deleted) {
-        if (index >= 0) { list.splice(index, 1); touched = true; }
+        if (index >= 0 && !pending) { list.splice(index, 1); touched = true; }
         continue;
       }
+      if (pending) continue;
       const incoming = { ...rec.data, id: rec.id, updatedAt: rec.updatedAt };
       if (index >= 0) {
-        // تغییر محلی‌ای که هنوز ارسال نشده باشد را بازنویسی نمی‌کنیم
-        const pending = this.outbox.some((o) => o.id === rec.id);
-        if (!pending) { list[index] = incoming; touched = true; }
+        list[index] = incoming;
+        touched = true;
       } else {
         list.push(incoming);
         touched = true;
@@ -286,7 +294,9 @@ class Store extends EventTarget {
     }
   }
 
-  /** بارگیری کامل از سرور (پس از ورود یا در دستگاه جدید) */
+  /** بارگیری کامل از سرور (پس از ورود یا در دستگاه جدید)
+   *  توجه: صف تغییرات ارسال‌نشده (outbox) عمداً دست‌نخورده می‌ماند تا
+   *  ثبت‌های آفلاین کاربر با همگام‌سازی کامل از بین نروند. */
   async bootstrap() {
     this.cursor = 0;
     this.state = emptyState();

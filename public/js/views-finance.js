@@ -22,6 +22,12 @@ const accountOptions = (state) => state.accounts.map((a) => ({ v: a.id, t: a.nam
 const contactName = (state, id) => state.contacts.find((c) => c.id === id)?.name || '—';
 const accountName = (state, id) => state.accounts.find((a) => a.id === id)?.name || '—';
 
+/** ایمن‌سازی مقدار برای CSV (کاما، گیومه و خط جدید) */
+const csvCell = (v) => {
+  const s = String(v ?? '');
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+};
+
 /* ========================= درآمد و هزینه ========================= */
 
 function txnForm(ctx, txn, preset = {}) {
@@ -238,7 +244,7 @@ function contactForm(ctx, contact) {
 }
 
 export const contacts = {
-  title: 'مشتریان و تأمین���کنندگان',
+  title: 'مشتریان و تأمین‌کنندگان',
   subtitle: () => 'دفترچه طرف حساب‌ها با مانده حساب',
   actions: () => '<button class="btn btn-primary" data-new>طرف حساب جدید</button>',
 
@@ -246,9 +252,11 @@ export const contacts = {
     const { state, query } = ctx;
     const list = state.contacts.filter((c) => !query || `${c.name} ${c.phone}`.includes(query));
 
+    // فروش = طلب، خرید = بدهی، مرجوعی‌ها خلاف جهت فاکتور اصلی
+    const BALANCE_SIGN = { 'فروش': 1, 'خرید': -1, 'مرجوعی فروش': -1, 'مرجوعی خرید': 1 };
     const balanceOf = (id) => state.invoices
       .filter((i) => i.contactId === id)
-      .reduce((acc, i) => acc + (i.kind === 'فروش' ? 1 : i.kind === 'خرید' ? -1 : 0) * invoiceBalance(i, state.txns), 0);
+      .reduce((acc, i) => acc + (BALANCE_SIGN[i.kind] || 0) * invoiceBalance(i, state.txns), 0);
 
     const rows = list.map((c) => {
       const balance = balanceOf(c.id);
@@ -418,7 +426,7 @@ export const cheques = {
       if (edit) return chequeForm(ctx, ctx.state.cheques.find((c) => c.id === edit.dataset.edit));
       if (e.target.closest('[data-export]')) {
         const lines = ['نوع,شماره,بانک,طرف حساب,سررسید,مبلغ,وضعیت'];
-        ctx.state.cheques.forEach((c) => lines.push([c.kind, c.no, c.bank, contactName(ctx.state, c.contactId), isoToJalali(c.due), num(c.amount), c.status].join(',')));
+        ctx.state.cheques.forEach((c) => lines.push([c.kind, c.no, c.bank, contactName(ctx.state, c.contactId), isoToJalali(c.due), num(c.amount), c.status].map(csvCell).join(',')));
         download('hesabyar-cheques.csv', lines.join('\n'), 'text/csv;charset=utf-8');
         return undefined;
       }
@@ -657,8 +665,8 @@ export const reports = {
       if (!e.target.closest('[data-csv]')) return;
       const { state } = ctx;
       const lines = ['نوع رکورد,تاریخ,شرح,طرف حساب,مبلغ'];
-      state.txns.forEach((t) => lines.push([t.type, isoToJalali(t.date), t.cat || t.note || '', contactName(state, t.contactId), num(t.amount)].join(',')));
-      state.invoices.forEach((i) => lines.push([`فاکتور ${i.kind}`, isoToJalali(i.date), `#${i.no}`, contactName(state, i.contactId), invoiceProfit(i, state.products)].join(',')));
+      state.txns.forEach((t) => lines.push([t.type, isoToJalali(t.date), t.cat || t.note || '', contactName(state, t.contactId), num(t.amount)].map(csvCell).join(',')));
+      state.invoices.forEach((i) => lines.push([`فاکتور ${i.kind}`, isoToJalali(i.date), `#${i.no}`, contactName(state, i.contactId), invoiceProfit(i, state.products)].map(csvCell).join(',')));
       download(`hesabyar-full-${isoToJalali(todayIso()).replace(/\//g, '-')}.csv`, lines.join('\n'), 'text/csv;charset=utf-8');
       toast('خروجی آماده شد');
     });

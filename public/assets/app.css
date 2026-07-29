@@ -334,7 +334,7 @@ table.data td.actions .cluster { flex-wrap: nowrap; justify-content: flex-end; g
 .totals .line.grand { font-size: 1.05rem; font-weight: 700; border-top: 1px solid var(--border); margin-top: 8px; padding-top: 12px; }
 
 /* ردیف اقلام فاکتور / ورود گروهی */
-.line-head, .line-row { display: grid; gap: 8px; align-items: center; }
+.line-head, .line-row { display: grid; gap: 8px; align-items: center; grid-template-columns: minmax(140px, 2fr) minmax(56px, .7fr) minmax(90px, 1fr) minmax(90px, 1fr) 34px; }
 .line-head { font-size: .74rem; color: var(--text-2); padding-inline: 2px; margin-bottom: 6px; }
 .line-row { margin-bottom: 8px; }
 .line-row .rm { color: var(--red); }
@@ -504,4 +504,10 @@ table.data td.actions .cluster { flex-wrap: nowrap; justify-content: flex-end; g
   .print-doc .pf { display: flex; justify-content: space-between; gap: 20px; align-items: flex-start; }
   .print-doc .psum td { border: 0; border-bottom: 1px solid #ddd; padding: 5px 8px; }
   .print-doc .psum tr.grand td { font-weight: 700; border-top: 2px solid #222; font-size: 14px; }
+}
+
+/* ردیف‌های اقلام فاکتور در موبایل: چینش دوستونه و بدون سرریز */
+@media (max-width: 640px) {
+  .line-head { display: none; }
+  .line-row { grid-template-columns: 1fr 1fr; }
 }

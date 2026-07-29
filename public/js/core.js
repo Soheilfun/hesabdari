@@ -58,7 +58,12 @@ export const todayIso = () => {
 };
 
 export const jParts = (iso) => {
-  const [y, m, d] = (iso || todayIso()).split('-').map(Number);
+  const parts = String(iso || '').split('-').map(Number);
+  const [y, m, d] = parts;
+  // ورودی نامعتبر/تهی نباید به NaN تبدیل شود
+  if (parts.length !== 3 || parts.some((n) => !Number.isFinite(n)) || m < 1 || m > 12 || d < 1 || d > 31) {
+    return jParts(todayIso());
+  }
   return gregorianToJalali(y, m, d);
 };
 
@@ -75,7 +80,14 @@ export const jalaliToIso = (text) => {
   const parts = enDigits(text).replace(/[^0-9]/g, '/').split('/').filter(Boolean).map(Number);
   if (parts.length < 3) return '';
   let [jy, jm, jd] = parts;
-  if (jy < 1200) jy += 1300;
+  if (jy < 100) {
+    // سال دو رقمی: نزدیک‌ترین تفسیر به سال جاری (نه همیشه ۱۳۰۰)
+    const [cy] = jParts(todayIso());
+    jy = Math.floor(cy / 100) * 100 + jy;
+    if (jy > cy + 10) jy -= 100;
+  } else if (jy < 1200) {
+    jy += 1300;
+  }
   if (jm < 1 || jm > 12 || jd < 1 || jd > 31) return '';
   const [gy, gm, gd] = jalaliToGregorian(jy, jm, jd);
   return `${gy}-${pad(gm)}-${pad(gd)}`;
@@ -143,7 +155,11 @@ export function moneyShort(value) {
 }
 
 export function num(value) {
-  const n = parseFloat(enDigits(value).replace(/[,\u066c\s]/g, ''));
+  // «٬» جداکننده هزارگان و «٫» جداکننده اعشار فارسی است
+  const s = enDigits(value)
+    .replace(/[\u066c\s,']/g, '')
+    .replace(/\u066b/g, '.');
+  const n = parseFloat(s);
   return Number.isNaN(n) ? 0 : n;
 }
 
@@ -184,19 +200,20 @@ export const CHEQUE_STATUS = ['در جریان', 'پاس شده', 'برگشتی'
 
 /* ========================= منطق دامنه حسابداری ========================= */
 
+// تخفیف هر ردیف فقط از همان ردیف کم می‌شود و ردیف هرگز منفی نمی‌شود (رفتار استاندارد فاکتور).
 export const invoiceSubtotal = (inv) =>
   sum(inv.items || [], (it) => Math.max(0, num(it.qty) * num(it.price) - num(it.discount)));
 
 export const invoiceTax = (inv) =>
-  Math.round((invoiceSubtotal(inv) - num(inv.discount)) * num(inv.taxRate) / 100);
+  Math.round(Math.max(0, invoiceSubtotal(inv) - num(inv.discount)) * num(inv.taxRate) / 100);
 
 export const invoiceTotal = (inv) =>
-  Math.max(0, invoiceSubtotal(inv) - num(inv.discount) + invoiceTax(inv));
+  Math.max(0, invoiceSubtotal(inv) - num(inv.discount)) + invoiceTax(inv);
 
 export const invoicePaid = (inv, txns) =>
   sum(txns.filter((t) => t.invoiceId === inv.id), (t) => t.amount) + num(inv.openingPaid);
 
-export const invoiceBalance = (inv, txns) => invoiceTotal(inv) - invoicePaid(inv, txns);
+export const invoiceBalance = (inv, txns) => Math.max(0, invoiceTotal(inv) - invoicePaid(inv, txns));
 
 export const invoiceCost = (inv, products) =>
   sum(inv.items || [], (it) => {
@@ -206,7 +223,7 @@ export const invoiceCost = (inv, products) =>
   });
 
 export const invoiceProfit = (inv, products) =>
-  invoiceSubtotal(inv) - num(inv.discount) - invoiceCost(inv, products);
+  Math.max(0, invoiceSubtotal(inv) - num(inv.discount)) - invoiceCost(inv, products);
 
 export function invoiceStatus(inv, txns) {
   const balance = invoiceBalance(inv, txns);
@@ -236,14 +253,18 @@ export const cashTotal = (state) => sum(state.accounts, (a) => accountBalance(a.
 export const stockValue = (state) => sum(state.products, (p) => num(p.stock) * num(p.buy));
 export const lowStock = (state) => state.products.filter((p) => num(p.stock) <= num(p.min));
 
+// فاکتورهای مرجوعی، طلب/بدهی را خلاف جهت فاکتور اصلی تغییر می‌دهند
+const RECEIVABLE_SIGN = { 'فروش': 1, 'مرجوعی فروش': -1 };
+const PAYABLE_SIGN = { 'خرید': 1, 'مرجوعی خرید': -1 };
+
 export const receivable = (state) => sum(
-  state.invoices.filter((i) => i.kind === 'فروش'),
-  (i) => Math.max(0, invoiceBalance(i, state.txns)),
+  state.invoices.filter((i) => RECEIVABLE_SIGN[i.kind]),
+  (i) => RECEIVABLE_SIGN[i.kind] * invoiceBalance(i, state.txns),
 );
 
 export const payable = (state) => sum(
-  state.invoices.filter((i) => i.kind === 'خرید'),
-  (i) => Math.max(0, invoiceBalance(i, state.txns)),
+  state.invoices.filter((i) => PAYABLE_SIGN[i.kind]),
+  (i) => PAYABLE_SIGN[i.kind] * invoiceBalance(i, state.txns),
 );
 
 export const monthTxns = (state, key) => state.txns.filter((t) => monthKey(t.date) === key);
