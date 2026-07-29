@@ -1,9 +1,10 @@
 /* Service worker — پوسته برنامه آفلاین کار می‌کند؛ درخواست‌های API هرگز کش نمی‌شوند. */
-const CACHE = 'hesabyar-shell-v3';
+const CACHE = 'hesabyar-shell-v4';
 const SHELL = [
   '/', '/index.html', '/assets/app.css', '/manifest.webmanifest',
   '/js/app.js', '/js/core.js', '/js/data.js', '/js/ui.js',
   '/js/views-sales.js', '/js/views-finance.js',
+  '/js/views-chat.js', '/js/agent.js',
 ];
 
 self.addEventListener('install', (event) => {

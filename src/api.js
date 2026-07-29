@@ -18,6 +18,8 @@
  * =============================================================================
  */
 
+import { handleChat } from './chat.js';
+
 const TOKEN_TTL_MS = 1000 * 60 * 60 * 24 * 30; // ۳۰ روز
 const MAX_OPS_PER_SYNC = 500;
 const ALLOWED_TYPES = new Set([
@@ -246,6 +248,7 @@ export async function onRequest(context) {
     if (path === 'sync' && method === 'POST') return await handleSync(request, env);
     if (path === 'export' && method === 'GET') return await handleExport(env);
     if (path === 'reset' && method === 'POST') return await handleReset(request, env);
+    if (path === 'chat' && method === 'POST') return await handleChat(request, env);
 
     return fail(404, 'not_found', 'مسیر یافت نشد.');
   } catch (err) {

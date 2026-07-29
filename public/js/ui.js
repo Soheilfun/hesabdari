@@ -36,6 +36,7 @@ const PATHS = {
   power: '<path d="M12 3v8"/><path d="M7.2 6.4a7.5 7.5 0 1 0 9.6 0"/>',
   close: '<path d="m6 6 12 12M18 6 6 18"/>',
   download: '<path d="M12 4v11m0 0 4-4m-4 4-4-4"/><path d="M4 19h16"/>',
+  sparkle: '<path d="M12 3.5l1.7 4.3 4.3 1.7-4.3 1.7L12 15.5l-1.7-4.3L6 9.5l4.3-1.7Z"/><path d="M18 15.5l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8Z"/>',
 };
 
 export const icon = (name, size = 18) =>

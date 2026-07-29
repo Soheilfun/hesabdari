@@ -7,11 +7,12 @@ import { $, $$, confirmDialog, icon, toast } from './ui.js';
 import { debounce, esc, faNum } from './core.js';
 import { bulk, dashboard, invoices, products } from './views-sales.js';
 import { accounts, budgets, cheques, contacts, docs, money_, reports, settings } from './views-finance.js';
+import { chat } from './views-chat.js';
 
 /* ------------------------------- تعریف صفحات ------------------------------- */
 
 const VIEWS = {
-  dashboard, invoices, products, bulk,
+  dashboard, chat, invoices, products, bulk,
   money: money_, accounts, contacts, cheques, budgets, docs, reports, settings,
 };
 
@@ -20,6 +21,7 @@ const NAV = [
     label: 'مرور',
     items: [
       { key: 'dashboard', label: 'داشبورد', icon: 'dashboard' },
+      { key: 'chat', label: 'دستیار هوشمند', icon: 'sparkle' },
       { key: 'reports', label: 'گزارش‌ها', icon: 'report' },
     ],
   },
@@ -48,7 +50,7 @@ const NAV = [
   },
 ];
 
-const MOBILE_TABS = ['dashboard', 'invoices', 'products', 'money', 'settings'];
+const MOBILE_TABS = ['dashboard', 'invoices', 'chat', 'products', 'settings'];
 
 /* --------------------------------- وضعیت --------------------------------- */
 

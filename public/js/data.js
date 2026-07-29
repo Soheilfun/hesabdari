@@ -108,6 +108,7 @@ export const api = {
   sync: (since, ops) => request('sync', { method: 'POST', body: { since: since || 0, ops } }),
   exportAll: () => request('export'),
   reset: () => request('reset', { method: 'POST', body: { confirm: 'DELETE' } }),
+  chat: (payload) => request('chat', { method: 'POST', body: payload, timeout: 60000 }),
 };
 
 /* =============================== Store =================================== */
