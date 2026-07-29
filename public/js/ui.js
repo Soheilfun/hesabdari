@@ -31,6 +31,11 @@ const PATHS = {
   up: '<path d="M12 20V5m0 0 6 6m-6-6-6 6"/>',
   down: '<path d="M12 4v15m0 0 6-6m-6 6-6-6"/>',
   empty: '<rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M3 10h18M9 5v14"/>',
+  search: '<circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/>',
+  theme: '<circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v17a8.5 8.5 0 0 0 0-17Z" fill="currentColor" stroke="none"/>',
+  power: '<path d="M12 3v8"/><path d="M7.2 6.4a7.5 7.5 0 1 0 9.6 0"/>',
+  close: '<path d="m6 6 12 12M18 6 6 18"/>',
+  download: '<path d="M12 4v11m0 0 4-4m-4 4-4-4"/><path d="M4 19h16"/>',
 };
 
 export const icon = (name, size = 18) =>
@@ -79,7 +84,8 @@ export function table(columns, rows, { emptyState = empty('موردی ثبت ن�
     // مقادیر ردیف‌ها در خود view ساخته و escape می‌شوند؛ اینجا HTML محسوب می‌شوند.
     const value = c.cell ? c.cell(row) : (row[c.key] ?? '');
     const cls = c.key === 'actions' ? 'actions' : (c.num ? 'num' : '');
-    return `<td${cls ? ` class="${cls}"` : ''} data-label="${esc(c.label)}">${value}</td>`;
+    // ستون بدون عنوان (مانند ستون دکمه‌ها) در موبایل برچسب خالی نمی‌گیرد
+    return `<td${cls ? ` class="${cls}"` : ''}${c.label ? ` data-label="${esc(c.label)}"` : ''}>${value}</td>`;
   }).join('')}</tr>`).join('');
   return `<div class="table-wrap"><table class="data"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
 }
@@ -142,7 +148,7 @@ export function openDrawer({ title, body, submitLabel = 'ذخیره', extraActio
     <div class="drawer" role="dialog" aria-modal="true" aria-label="${esc(title)}"${wide ? ' style="width:min(900px,100%)"' : ''}>
       <header class="drawer-head">
         <h2 style="font-size:1.05rem">${esc(title)}</h2>
-        <div class="push"><button type="button" class="btn btn-ghost btn-icon" data-close aria-label="بستن">✕</button></div>
+        <div class="push"><button type="button" class="btn btn-ghost btn-icon" data-close aria-label="بستن">${icon('close')}</button></div>
       </header>
       <form class="drawer-body" novalidate>${body}</form>
       <footer class="drawer-foot">

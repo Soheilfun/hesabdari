@@ -3,8 +3,8 @@
  */
 
 import { api, auth, store } from './data.js';
-import { $, $$, icon, toast } from './ui.js';
-import { debounce, enDigits, esc, faNum } from './core.js';
+import { $, $$, confirmDialog, icon, toast } from './ui.js';
+import { debounce, esc, faNum } from './core.js';
 import { bulk, dashboard, invoices, products } from './views-sales.js';
 import { accounts, budgets, cheques, contacts, docs, money_, reports, settings } from './views-finance.js';
 
@@ -108,17 +108,20 @@ function render() {
   const subtitle = typeof view.subtitle === 'function' ? view.subtitle(ctx) : '';
 
   page.innerHTML = `
-    <div class="page-head">
-      <div>
-        <h1>${esc(view.title)}</h1>
-        ${subtitle ? `<div class="title-sub">${esc(subtitle)}</div>` : ''}
+    <div class="page-inner">
+      <div class="page-head">
+        <div>
+          <h1>${esc(view.title)}</h1>
+          ${subtitle ? `<div class="title-sub">${esc(subtitle)}</div>` : ''}
+        </div>
+        <div class="actions">${view.actions ? view.actions(ctx) : ''}</div>
       </div>
-      <div class="actions">${view.actions ? view.actions(ctx) : ''}</div>
-    </div>
-    <div id="view-root">${view.render(ctx)}</div>`;
+      <div id="view-root">${view.render(ctx)}</div>
+    </div>`;
 
-  const root = $('#view-root');
-  view.mount?.(root, ctx);
+  // دامنه رویدادهای هر صفحه شامل دکمه‌های سرصفحه هم می‌شود؛ این عنصر در هر
+  // رندر از نو ساخته می‌شود، پس نه دکمه‌ای بی‌اثر می‌ماند و نه لیسنری انباشته می‌شود.
+  view.mount?.($('.page-inner', page), ctx);
 
   renderNav();
   document.title = `${view.title} — ${store.state.settings.shop || 'حساب‌یار'}`;
@@ -134,7 +137,8 @@ function renderSync(status) {
   if (!status.online) { chip.dataset.state = 'offline'; label.textContent = status.pending ? `آفلاین — ${faNum(status.pending)} در صف` : 'آفلاین'; return; }
   if (status.error) { chip.dataset.state = 'error'; label.textContent = 'خطای اتصال'; return; }
   chip.dataset.state = 'ok';
-  label.textContent = status.pending ? `${faNum(status.pending)} در صف` : 'همگام';
+  if (status.pending) { label.textContent = `${faNum(status.pending)} در صف`; return; }
+  label.textContent = status.lastSync ? 'همگام' : 'آماده';
 }
 
 /* --------------------------------- ورود --------------------------------- */
@@ -178,7 +182,16 @@ function bindShell() {
     localStorage.setItem('hesabyar.theme', next);
   });
 
-  $('#lock-btn').addEventListener('click', () => {
+  $('#lock-btn').addEventListener('click', async () => {
+    // خروج، کش و صف ارسال‌نشده را پاک می‌کند؛ اگر چیزی در صف مانده باشد هشدار می‌دهیم
+    if (store.status.pending) {
+      const ok = await confirmDialog({
+        title: 'تغییرات ارسال‌نشده دارید',
+        message: `${faNum(store.status.pending)} تغییر هنوز روی سرور ذخیره نشده است. اگر خارج شوید این تغییرات از بین می‌رود.`,
+        confirmLabel: 'خروج و پاک کردن',
+      });
+      if (!ok) { store.sync(); return; }
+    }
     auth.token = '';
     store.clearLocal();
     showGate('از حساب خارج شدید.');
@@ -187,11 +200,9 @@ function bindShell() {
   $('#sync-chip').addEventListener('click', () => store.sync());
 
   $('#global-search').addEventListener('input', debounce((e) => {
-    ui.query = enDigits(e.target.value.trim());
+    // کادر جست‌وجو بیرون از ناحیه رندر است؛ دست زدن به مقدار آن نشانگر تایپ را می‌پراند
+    ui.query = e.target.value.trim();
     render();
-    const box = $('#global-search');
-    box.focus();
-    box.value = ui.query;
   }, 250));
 
   document.addEventListener('keydown', (e) => {

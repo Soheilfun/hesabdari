@@ -9,7 +9,7 @@ import {
   accountBalance, cashTotal, currentMonthKey, esc, faNum, invoiceBalance, invoiceProfit,
   isoPlusDays, isoToJalali, lastMonthKeys, money, moneyShort, monthExpense, monthIncome,
   monthKey, monthKeyLabel, monthSalesProfit, monthTxns, num, openCheques, payable,
-  receivable, stockValue, todayIso, toman, uniq,
+  normText, receivable, stockValue, todayIso, toman, uniq,
 } from './core.js';
 import {
   $, banner, card, chip, confirmDialog, dateField, download, empty, icon,
@@ -83,7 +83,7 @@ export const money_ = {
     const months = lastMonthKeys(12);
     const list = state.txns
       .filter((t) => monthKey(t.date) === key)
-      .filter((t) => !query || `${t.cat} ${t.note} ${contactName(state, t.contactId)}`.includes(query))
+      .filter((t) => !query || normText(`${t.cat || ''} ${t.note || ''} ${contactName(state, t.contactId)}`).includes(normText(query)))
       .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
 
     const rows = list.map((t) => ({
@@ -250,7 +250,8 @@ export const contacts = {
 
   render(ctx) {
     const { state, query } = ctx;
-    const list = state.contacts.filter((c) => !query || `${c.name} ${c.phone}`.includes(query));
+    const list = state.contacts.filter((c) => !query
+      || normText(`${c.name || ''} ${c.phone || ''} ${c.role || ''}`).includes(normText(query)));
 
     // فروش = طلب، خرید = بدهی، مرجوعی‌ها خلاف جهت فاکتور اصلی
     const BALANCE_SIGN = { 'فروش': 1, 'خرید': -1, 'مرجوعی فروش': -1, 'مرجوعی خرید': 1 };
@@ -463,7 +464,7 @@ export const budgets = {
         <span class="name">${esc(b.cat)}</span>
         <span class="track"><span class="fill" data-tone="${tone}" style="width:${pct}%"></span></span>
         <span class="nums small">${money(spent)} / ${money(b.amount)}
-          <button class="btn btn-sm btn-icon btn-danger" data-del="${b.id}" title="حذف" aria-label="حذف">✕</button></span>
+          <button class="btn btn-sm btn-icon btn-danger" data-del="${b.id}" title="حذف" aria-label="حذف">${icon('close')}</button></span>
       </div>`;
     }).join('')}</div>` : empty('برای این ماه بودجه‌ای تعیین نشده', 'مثلاً سقف هزینه «اجاره مغازه» را مشخص کنید.', icon('budget', 28));
 

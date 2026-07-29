@@ -267,16 +267,29 @@ class Store extends EventTarget {
     this.setStatus({ syncing: true, error: '' });
     const sending = [...this.outbox];
     try {
-      const since = full ? 0 : this.cursor;
-      const res = sending.length || !full
-        ? await api.sync(since, sending)
-        : await api.pull(since);
+      let since = full ? 0 : this.cursor;
+      let res;
+      // سرور در هر درخواست حداکثر ۵۰۰ تغییر میپذیرد؛ صف بزرگ (ورود گروهی)
+      // تکهتکه ارسال میشود تا هیچ‌وقت قفل نشود
+      if (!sending.length) {
+        res = await api.pull(since);
+      } else {
+        const CHUNK = 200;
+        for (let i = 0; i < sending.length; i += CHUNK) {
+          const part = sending.slice(i, i + CHUNK);
+          res = await api.sync(since, part);
+          const partKeys = new Set(part.map((o) => `${o.id}:${o.updatedAt}`));
+          this.outbox = this.outbox.filter((o) => !partKeys.has(`${o.id}:${o.updatedAt}`));
+          this._persistCache();
+          this.setStatus({ syncing: true });
+          if (this._merge(res.records || [])) this._chunkChanged = true;
+          since = res.serverTime || since;
+        }
+      }
 
       // عملیاتی که موفق رفتند از صف حذف می‌شوند (بقیه دفعه بعد می‌روند)
-      const sentIds = new Set(sending.map((o) => `${o.id}:${o.updatedAt}`));
-      this.outbox = this.outbox.filter((o) => !sentIds.has(`${o.id}:${o.updatedAt}`));
-
-      const changed = this._merge(res.records || []);
+      const changed = (sending.length ? false : this._merge(res.records || [])) || !!this._chunkChanged;
+      this._chunkChanged = false;
       this.cursor = res.serverTime || Date.now();
       this._persistCache();
       this.setStatus({ syncing: false, online: true, lastSync: Date.now(), error: '' });

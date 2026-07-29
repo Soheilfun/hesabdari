@@ -52,6 +52,19 @@ export const enDigits = (s) => String(s ?? '')
   .replace(/[\u06f0-\u06f9]/g, (d) => String(d.charCodeAt(0) - 0x06f0))
   .replace(/[\u0660-\u0669]/g, (d) => String(d.charCodeAt(0) - 0x0660));
 
+/**
+ * یکسان‌سازی متن برای جست‌وجو و مقایسه نام کالاها:
+ * رقم فارسی/عربی ← انگلیسی، کوچک‌سازی لاتین، یکسان‌سازی ی/ک عربی،
+ * حذف نیم‌فاصله و فاصله‌های تکراری.
+ */
+export const normText = (value) => enDigits(value)
+  .toLowerCase()
+  .replace(/[\u064a\u0649]/g, '\u06cc')
+  .replace(/\u0643/g, '\u06a9')
+  .replace(/[\u200c\u200e\u200f]/g, ' ')
+  .replace(/\s+/g, ' ')
+  .trim();
+
 export const todayIso = () => {
   const d = new Date();
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;

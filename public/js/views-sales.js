@@ -8,7 +8,7 @@ import {
   invoiceProfit, invoiceStatus, invoiceSubtotal, invoiceTax, invoiceTotal, isoPlusDays,
   isoToJalali, jalaliLong, lastMonthKeys, lowStock, money, moneyShort, monthExpense,
   monthIncome, monthKey, monthKeyLabel, monthSalesProfit, num, payable, receivable,
-  roundTo, stockValue, todayIso, toman, uniq,
+  enDigits, normText, roundTo, stockValue, todayIso, toman, uniq,
 } from './core.js';
 import {
   $, $$, banner, card, chip, confirmDialog, dateField, download, empty, icon,
@@ -150,7 +150,7 @@ function itemRowHtml(item = {}) {
     <input name="qty" class="nums" inputmode="decimal" value="${esc(item.qty ?? 1)}" placeholder="تعداد" />
     <input name="price" class="nums" inputmode="decimal" value="${esc(item.price ?? '')}" placeholder="قیمت واحد" />
     <input name="discount" class="nums" inputmode="decimal" value="${esc(item.discount ?? '')}" placeholder="تخفیف" />
-    <button type="button" class="btn btn-sm btn-icon rm" data-rm aria-label="حذف ردیف">✕</button>
+    <button type="button" class="btn btn-sm btn-icon rm" data-rm aria-label="حذف ردیف">${icon('close')}</button>
   </div>`;
 }
 
@@ -391,7 +391,7 @@ export const invoices = {
     const kind = ctx.params.kind || 'همه';
     const list = state.invoices
       .filter((i) => kind === 'همه' || i.kind === kind)
-      .filter((i) => !query || `${i.no || ''} ${contactName(state, i.contactId)} ${i.note || ''}`.includes(query))
+      .filter((i) => !query || normText(`${i.no || ''} ${contactName(state, i.contactId)} ${i.note || ''}`).includes(normText(query)))
       .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
 
     const rows = list.map((inv) => {
@@ -540,7 +540,7 @@ export const products = {
     const cat = ctx.params.cat || 'همه';
     const list = state.products
       .filter((p) => cat === 'همه' || p.cat === cat)
-      .filter((p) => !query || `${p.name || ''} ${p.sku || ''} ${p.brand || ''}`.includes(query))
+      .filter((p) => !query || normText(`${p.name || ''} ${p.sku || ''} ${p.brand || ''}`).includes(normText(query)))
       .sort((a, b) => String(a.name).localeCompare(String(b.name), 'fa'));
 
     const rows = list.map((p) => {
@@ -608,18 +608,59 @@ products.headActions = { bump: priceBumpForm, create: productForm };
 
 const BULK_HEADER = 'نام کالا,کد,دسته,واحد,قیمت خرید,قیمت فروش,موجودی,حداقل';
 
+/** جدا کردن سلولهای یک سطر با پشتیبانی از گیومه و ویرگول فارسی */
+function splitRow(line) {
+  const cells = [];
+  let cur = '';
+  let quoted = false;
+  for (let i = 0; i < line.length; i += 1) {
+    const ch = line[i];
+    if (quoted) {
+      if (ch === '"') {
+        if (line[i + 1] === '"') { cur += '"'; i += 1; } else quoted = false;
+      } else cur += ch;
+    } else if (ch === '"') {
+      quoted = true;
+    } else if (ch === ',' || ch === '\t' || ch === ';' || ch === '\u060c' || ch === '\u061b') {
+      cells.push(cur);
+      cur = '';
+    } else {
+      cur += ch;
+    }
+  }
+  cells.push(cur);
+  return cells.map((c) => c.trim());
+}
+
+const HEADER_WORDS = ['\u0646\u0627\u0645\u06a9\u0627\u0644\u0627', '\u0646\u0627\u0645', '\u06a9\u0627\u0644\u0627', '\u0634\u0631\u062d', '\u0645\u062d\u0635\u0648\u0644', '\u0646\u0627\u0645\u0645\u062d\u0635\u0648\u0644', 'name', 'productname', 'item', 'title'];
+
+// سلول خالی undefined میماند تا با مقدار صفر اشتباه نشود
+const cellText = (v) => (String(v ?? '').trim() === '' ? undefined : String(v).trim());
+const cellNum = (v) => (String(v ?? '').trim() === '' ? undefined : num(v));
+
+function isHeaderRow(cells) {
+  const first = normText(cells[0] || '').replace(/\s/g, '');
+  if (HEADER_WORDS.some((w) => first === normText(w).replace(/\s/g, ''))) return true;
+  // اگر ستونهای قیمت متن غیرعددی دارند، این سطر عنوان است نه کالا
+  const priced = [cells[4], cells[5]].filter((c) => String(c ?? '').trim() !== '');
+  return priced.length > 0 && priced.every((c) => !/[0-9]/.test(enDigits(String(c))));
+}
+
 export function parseBulk(raw) {
-  const lines = String(raw || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const lines = String(raw || '').replace(/^\ufeff/, '').split(/\r?\n/).filter((l) => l.trim());
   if (!lines.length) return [];
-  if (lines[0].replace(/\s/g, '').startsWith('نامکالا')) lines.shift();
-  return lines.map((line) => {
-    const cells = line.split(/[,\t;]/).map((c) => c.trim());
-    return {
-      name: cells[0] || '', sku: cells[1] || '', cat: cells[2] || PRODUCT_CATS[0],
-      unit: cells[3] || UNITS[0], buy: num(cells[4]), sell: num(cells[5]),
-      stock: num(cells[6]), min: num(cells[7]) || 1,
-    };
-  }).filter((p) => p.name);
+  const rows = lines.map(splitRow);
+  if (isHeaderRow(rows[0])) rows.shift();
+  return rows.map((cells) => ({
+    name: cellText(cells[0]) || '',
+    sku: cellText(cells[1]),
+    cat: cellText(cells[2]),
+    unit: cellText(cells[3]),
+    buy: cellNum(cells[4]),
+    sell: cellNum(cells[5]),
+    stock: cellNum(cells[6]),
+    min: cellNum(cells[7]),
+  })).filter((p) => p.name);
 }
 
 export const bulk = {
@@ -629,13 +670,13 @@ export const bulk = {
 
   render(ctx) {
     return `
-      ${banner('ستون‌ها به ترتیب: <b>نام کالا، کد، دسته، واحد، قیمت خرید، قیمت فروش، موجودی، حداقل</b>. در اکسل می‌توانید سلول‌ها را کپی کنید و مستقیم در کادر پایین Paste کنید.', 'blue', '⤓')}
+      ${banner('ستون‌ها به ترتیب: <b>نام کالا، کد، دسته، واحد، قیمت خرید، قیمت فروش، موجودی، حداقل</b>. در اکسل می‌توانید سلول‌ها را کپی کنید و مستقیم در کادر پایین Paste کنید.', 'blue', icon('download', 20))}
       <div class="grid cols-sidebar" style="margin-top:var(--sp-4)">
         ${card({
           title: '۱) داده را وارد کنید',
           body: `<div class="field">
               <label class="lbl" for="bulk-file">فایل CSV یا اکسل (ذخیره‌شده به صورت CSV)</label>
-              <input type="file" id="bulk-file" accept=".csv,.txt,text/csv" />
+              <input type="file" id="bulk-file" accept=".csv,.txt,text/csv,.xlsx,.xls" />
             </div>
             <div class="field">
               <label class="lbl" for="bulk-text">یا جدول را اینجا پیست کنید</label>
@@ -657,7 +698,14 @@ export const bulk = {
     $('#bulk-file', root).addEventListener('change', async (e) => {
       const file = e.target.files?.[0];
       if (!file) return;
-      textEl().value = await file.text();
+      // xlsx درواقع یک zip است و متن خوانا ندارد
+      const head = new Uint8Array(await file.slice(0, 4).arrayBuffer());
+      if ((head[0] === 0x50 && head[1] === 0x4b) || /\.(xlsx|xls)$/i.test(file.name)) {
+        toast('فایل اکسل مستقیم خوانده نمیشود. در اکسل Save As – CSV UTF-8 بگیرید یا سلولها را کپی و در کادر پیست کنید.', 'red');
+        e.target.value = '';
+        return;
+      }
+      textEl().value = (await file.text()).replace(/^\ufeff/, '');
       toast('فایل خوانده شد؛ پیش‌نمایش را بزنید.');
     });
 
@@ -672,9 +720,9 @@ export const bulk = {
           { key: 'sell', label: 'فروش', num: true },
           { key: 'stock', label: 'موجودی', num: true },
         ], items.map((p) => ({
-          name: esc(p.name), cat: esc(p.cat), buy: money(p.buy),
-          sell: money(p.sell || roundTo(p.buy * (1 + num(ctx.state.settings.autoMargin) / 100))),
-          stock: faNum(p.stock),
+          name: esc(p.name), cat: esc(p.cat || PRODUCT_CATS[0]), buy: money(p.buy ?? 0),
+          sell: money(p.sell ?? roundTo((p.buy ?? 0) * (1 + num(ctx.state.settings.autoMargin) / 100))),
+          stock: faNum(p.stock ?? 0),
         })))
         : empty('داده‌ای شناسایی نشد', 'قالب ستون‌ها را بررسی کنید.', icon('upload', 28));
       return items;
@@ -691,25 +739,38 @@ export const bulk = {
         let added = 0;
         let updated = 0;
         items.forEach((p) => {
-          const existing = merge && ctx.state.products.find((x) => x.name === p.name || (p.sku && x.sku && x.sku === p.sku));
-          const sell = p.sell || roundTo(p.buy * (1 + margin / 100));
+          const existing = merge && ctx.state.products.find((x) => normText(x.name) === normText(p.name)
+            || (p.sku && x.sku && normText(x.sku) === normText(p.sku)));
+          const buy = p.buy ?? (existing ? num(existing.buy) : 0);
+          const sell = p.sell ?? (existing ? (num(existing.sell) || roundTo(buy * (1 + margin / 100)))
+            : roundTo(buy * (1 + margin / 100)));
           if (existing) {
             // فقط فیلدهای پرشده بازنویسی می‌شوند تا اطلاعات قبلی پاک نشود
             ctx.store.put('product', {
               ...existing,
               name: p.name || existing.name,
-              sku: p.sku || existing.sku,
-              cat: p.cat || existing.cat,
-              unit: p.unit || existing.unit,
-              buy: num(p.buy) || num(existing.buy),
+              sku: p.sku ?? existing.sku,
+              cat: p.cat ?? existing.cat,
+              unit: p.unit ?? existing.unit,
+              buy,
               sell,
-              stock: num(p.stock) || num(existing.stock),
-              min: num(p.min) || num(existing.min),
+              stock: p.stock ?? num(existing.stock),
+              min: p.min ?? num(existing.min),
             });
             updated += 1;
-            updated += 1;
           } else {
-            ctx.store.put('product', { ...p, sell, brand: '', loc: '' });
+            ctx.store.put('product', {
+              name: p.name,
+              sku: p.sku || '',
+              cat: p.cat || PRODUCT_CATS[0],
+              unit: p.unit || UNITS[0],
+              buy,
+              sell,
+              stock: p.stock ?? 0,
+              min: p.min ?? 1,
+              brand: '',
+              loc: '',
+            });
             added += 1;
           }
         });
