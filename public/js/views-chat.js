@@ -180,9 +180,12 @@ async function sendMessage(root, ctx, text) {
     thinking.remove();
     const code = err?.code || '';
     const map = {
-      chat_not_configured: 'دستیار هنوز فعال نشده است. در تنطیمات Worker کلید GEMINI_API_KEY را بسازید.',
+      chat_not_configured: 'دستیار هنوز فعال نشده است. در تنظیمات Worker یک Secret به نام AI_API_KEY بسازید.',
       chat_rate_limited: 'سهمیه درخواست مدل پر شده. چند دقیقه بعد دوباره امتحان کنید.',
-      chat_key_invalid: 'کلید Gemini پذیرفته نشد. درستی کلید را در تنطیمات Worker بررسی کنید.',
+      chat_overloaded: 'سرور مدل شلوغ است. چند لحظه بعد دوباره بفرستید.',
+      chat_model_missing: 'نام مدل یا آدرس سرویس درست نیست. مقدار AI_MODEL را بررسی کنید.',
+      chat_unreachable: 'اتصال به سرویس مدل برقرار نشد. مقدار AI_BASE_URL را بررسی کنید.',
+      chat_key_invalid: 'کلید API پذیرفته نشد. درستی کلید را در تنظیمات Worker بررسی کنید.',
       chat_too_large: 'گفت‌وگو طولانی شد. دکمه «گفت‌وگوی تازه» را بزنید.',
       chat_timeout: 'پاسخ طول کشید. دوباره امتحان کنید.',
       offline: 'دستیار برای کار کردن به اینترنت نیاز دارد. بقیه برنامه آفلاین کار می‌کند.',
