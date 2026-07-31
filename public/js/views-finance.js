@@ -696,7 +696,7 @@ export const settings = {
             </div>
             <div class="form-grid">
               ${numberField('buyMarkup', 'درصد سود فاکتور خرید', s.buyMarkup, { hint: 'برای کالای جدیدی که از فاکتور خرید ساخته می‌شود' })}
-              ${numberField('autoMargin', 'درصد سود خودکار فرم کالا', s.autoMargin)}
+              ${numberField('autoMargin', 'درصد سود پیش‌فرض کالا', s.autoMargin, { hint: 'قیمت خرید = قیمت فروش منهای این درصد' })}
             </div>
             ${'<label class="check"><input type="checkbox" name="addNewFromPurchase"' + (s.addNewFromPurchase ? ' checked' : '') + ' /> <span>کالاهای فاکتور خرید به صورت پیش‌فرض به لیست محصولات اضافه شود</span></label>'}
             <div class="cluster" style="margin-top:var(--sp-4)"><button type="button" class="btn btn-primary" id="save-settings">ذخیره تنظیمات</button></div>

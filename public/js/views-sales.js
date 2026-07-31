@@ -3,7 +3,7 @@
  */
 
 import {
-  INVOICE_KINDS, PAY_METHODS, PRODUCT_CATS, UNITS,
+  INVOICE_KINDS, PAY_METHODS, UNITS,
   cashTotal, chequesDueSoon, currentMonthKey, esc, faNum, invoiceBalance, invoicePaid,
   invoiceProfit, invoiceStatus, invoiceSubtotal, invoiceTax, invoiceTotal, isoPlusDays,
   isoToJalali, jalaliLong, lastMonthKeys, lowStock, money, moneyShort, monthExpense,
@@ -300,7 +300,7 @@ function openInvoiceForm(ctx, invoice) {
             });
           } else {
             store.put('product', {
-              name: it.desc, sku: '', brand: '', cat: PRODUCT_CATS[0], unit: UNITS[0], loc: '',
+              name: it.desc, sku: nextSku(state.products), unit: UNITS[0], loc: '',
               buy: it.price, sell: roundTo(it.price * (1 + markup / 100)), stock: it.qty, min: 1,
             });
           }
@@ -461,36 +461,49 @@ export const invoices = {
 
 /* ================================= کالاها ================================= */
 
+/* درصد سود روی «قیمت فروش» اعمال می‌شود: قیمت خرید = فروش − درصد سود */
+export const buyFromSell = (sell, margin) => roundTo(num(sell) * (1 - num(margin) / 100));
+export const sellFromBuy = (buy, margin) => (num(margin) < 100 ? roundTo(num(buy) / (1 - num(margin) / 100)) : num(buy));
+
+/** کد کالا خودکار ساخته می‌شود؛ نیازی به ثبت دستی نیست */
+export function nextSku(products) {
+  const nums = (products || [])
+    .map((p) => Number(String(p.sku || '').replace(/[^0-9]/g, '')))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  return `K-${(nums.length ? Math.max(...nums) : 1000) + 1}`;
+}
+
 function productForm(ctx, product) {
   const { state, store } = ctx;
-  const p = product || { name: '', sku: '', brand: '', cat: PRODUCT_CATS[0], unit: UNITS[0], loc: '', buy: '', sell: '', stock: 0, min: 1 };
+  const p = product || { name: '', sku: '', unit: UNITS[0], loc: '', buy: '', sell: '', stock: 0, min: 1 };
 
   openDrawer({
     title: product ? 'ویرایش کالا' : 'کالای جدید',
     body: `<div class="form-grid">
       ${text('name', 'نام کالا', p.name, { span: true })}
-      ${text('sku', 'کد کالا', p.sku)}
-      ${text('brand', 'برند', p.brand)}
-      ${select('cat', 'دسته', PRODUCT_CATS, p.cat)}
       ${select('unit', 'واحد', UNITS, p.unit)}
-      ${numberField('buy', 'قیمت خرید (تومان)', p.buy)}
-      ${numberField('sell', 'قیمت فروش (تومان)', p.sell, { hint: `خالی بماند: خودکار ${faNum(state.settings.autoMargin)}٪ سود` })}
+      ${numberField('sell', 'قیمت فروش (تومان)', p.sell)}
+      ${numberField('buy', 'قیمت خرید (تومان)', p.buy, { hint: `خالی بماند: ${faNum(state.settings.autoMargin)}٪ کمتر از قیمت فروش` })}
       ${numberField('stock', 'موجودی', p.stock)}
       ${numberField('min', 'حداقل موجودی', p.min)}
       ${text('loc', 'محل نگهداری', p.loc)}
+      <p class="small muted" style="grid-column:1/-1">کد کالا خودکار ساخته می‌شود${p.sku ? ` — کد این کالا: ${esc(p.sku)}` : ''}</p>
     </div>`,
     onMount(form) {
       const buyEl = $('[name=buy]', form);
       const sellEl = $('[name=sell]', form);
-      buyEl.addEventListener('input', () => {
-        if (!num(sellEl.value)) sellEl.placeholder = String(roundTo(num(buyEl.value) * (1 + num(state.settings.autoMargin) / 100)));
+      sellEl.addEventListener('input', () => {
+        if (!num(buyEl.value)) buyEl.placeholder = String(buyFromSell(sellEl.value, state.settings.autoMargin));
       });
     },
     onSubmit(values) {
       if (!values.name) { toast('نام کالا الزامی است.', 'red'); return false; }
-      const buy = num(values.buy);
-      const sell = num(values.sell) || roundTo(buy * (1 + num(state.settings.autoMargin) / 100));
-      store.put('product', { id: p.id, ...values, buy, sell, stock: num(values.stock), min: num(values.min) });
+      const sell = num(values.sell);
+      const buy = num(values.buy) || buyFromSell(sell, state.settings.autoMargin);
+      const sku = p.sku || nextSku(state.products);
+      store.put('product', {
+        ...(product || {}), id: p.id, ...values, sku, buy, sell, stock: num(values.stock), min: num(values.min),
+      });
       toast('کالا ذخیره شد', 'green');
       ctx.refresh();
       return true;
@@ -506,7 +519,6 @@ function priceBumpForm(ctx) {
     body: `<p class="small muted">درصد دلخواه را روی قیمت فروش (و در صورت تمایل قیمت خرید) کالاها اعمال کنید.</p>
       <div class="form-grid">
         ${numberField('percent', 'درصد افزایش', 10)}
-        ${select('cat', 'فقط دسته', PRODUCT_CATS, '', { blank: 'همه دسته‌ها' })}
         ${select('round', 'گرد کردن به', [{ v: '1', t: 'بدون گرد کردن' }, { v: '1000', t: 'هزار تومان' }, { v: '5000', t: '۵ هزار تومان' }], '1000')}
       </div>
       <label class="check"><input type="checkbox" name="alsoBuy" /> <span>قیمت خرید هم افزایش پیدا کند</span></label>`,
@@ -514,7 +526,7 @@ function priceBumpForm(ctx) {
       const percent = num(values.percent);
       if (!percent) { toast('درصد را وارد کنید.', 'red'); return false; }
       const step = num(values.round) || 1;
-      const targets = state.products.filter((p) => !values.cat || p.cat === values.cat);
+      const targets = state.products;
       targets.forEach((p) => store.put('product', {
         ...p,
         sell: roundTo(num(p.sell) * (1 + percent / 100), step),
@@ -537,18 +549,15 @@ export const products = {
 
   render(ctx) {
     const { state, query } = ctx;
-    const cat = ctx.params.cat || 'همه';
     const list = state.products
-      .filter((p) => cat === 'همه' || p.cat === cat)
-      .filter((p) => !query || normText(`${p.name || ''} ${p.sku || ''} ${p.brand || ''}`).includes(normText(query)))
+      .filter((p) => !query || normText(`${p.name || ''} ${p.sku || ''}`).includes(normText(query)))
       .sort((a, b) => String(a.name).localeCompare(String(b.name), 'fa'));
 
     const rows = list.map((p) => {
       const low = num(p.stock) <= num(p.min);
       return {
         _id: p.id,
-        name: `<b>${esc(p.name)}</b>${p.brand || p.sku ? `<div class="tiny muted">${esc([p.brand, p.sku].filter(Boolean).join(' • '))}</div>` : ''}`,
-        cat: esc(p.cat || '—'),
+        name: `<b>${esc(p.name)}</b>${p.sku ? `<div class="tiny muted">${esc(p.sku)}</div>` : ''}`,
         buy: money(p.buy),
         sell: `<b class="nums">${money(p.sell)}</b>`,
         stock: `${faNum(num(p.stock))} ${esc(p.unit || '')} ${low ? chip('کم', 'red') : ''}`,
@@ -559,24 +568,18 @@ export const products = {
       };
     });
 
-    const cats = ['همه', ...uniq(state.products.map((p) => p.cat))];
-
     return `
       <div class="grid cols-3" style="margin-bottom:var(--sp-4)">
         ${stat({ label: 'تعداد کالا', value: faNum(state.products.length) })}
         ${stat({ label: 'ارزش انبار (قیمت خرید)', value: moneyShort(stockValue(state)), unit: 'تومان', tone: 'blue' })}
         ${stat({ label: 'کالای رو به اتمام', value: faNum(lowStock(state).length), tone: lowStock(state).length ? 'red' : '' })}
       </div>
-      <div class="cluster" style="margin-bottom:var(--sp-4)">
-        ${cats.map((c) => `<button class="chip" data-cat="${esc(c)}"${c === cat ? ' data-tone="blue"' : ''}>${esc(c)}</button>`).join('')}
-      </div>
       ${card({
         tight: true,
         body: table([
           { key: 'name', label: 'کالا' },
-          { key: 'cat', label: 'دسته' },
-          { key: 'buy', label: 'خرید', num: true },
           { key: 'sell', label: 'فروش', num: true },
+          { key: 'buy', label: 'خرید', num: true },
           { key: 'stock', label: 'موجودی', num: true },
           { key: 'actions', label: '' },
         ], rows, { emptyState: empty('کالایی ثبت نشده', 'می‌توانید تکی یا گروهی (اکسل) کالا وارد کنید.', icon('box', 28), '<button class="btn btn-primary btn-sm" data-new>کالای جدید</button> <button class="btn btn-sm" data-go="bulk">ورود گروهی</button>') }),
@@ -587,8 +590,6 @@ export const products = {
     root.addEventListener('click', async (e) => {
       if (e.target.closest('[data-new]')) return productForm(ctx);
       if (e.target.closest('[data-bump]')) return priceBumpForm(ctx);
-      const c = e.target.closest('[data-cat]');
-      if (c) return ctx.setParams({ cat: c.dataset.cat });
       const edit = e.target.closest('[data-edit]');
       if (edit) return productForm(ctx, ctx.state.products.find((p) => p.id === edit.dataset.edit));
       const del = e.target.closest('[data-del]');
@@ -606,7 +607,7 @@ products.headActions = { bump: priceBumpForm, create: productForm };
 
 /* ============================== ورود گروهی ============================== */
 
-const BULK_HEADER = 'نام کالا,کد,دسته,واحد,قیمت خرید,قیمت فروش,موجودی,حداقل';
+const BULK_HEADER = 'نام کالا,قیمت فروش,قیمت خرید,موجودی';
 
 /** جدا کردن سلولهای یک سطر با پشتیبانی از گیومه و ویرگول فارسی */
 function splitRow(line) {
@@ -642,7 +643,7 @@ function isHeaderRow(cells) {
   const first = normText(cells[0] || '').replace(/\s/g, '');
   if (HEADER_WORDS.some((w) => first === normText(w).replace(/\s/g, ''))) return true;
   // اگر ستونهای قیمت متن غیرعددی دارند، این سطر عنوان است نه کالا
-  const priced = [cells[4], cells[5]].filter((c) => String(c ?? '').trim() !== '');
+  const priced = [cells[1], cells[2]].filter((c) => String(c ?? '').trim() !== '');
   return priced.length > 0 && priced.every((c) => !/[0-9]/.test(enDigits(String(c))));
 }
 
@@ -653,24 +654,20 @@ export function parseBulk(raw) {
   if (isHeaderRow(rows[0])) rows.shift();
   return rows.map((cells) => ({
     name: cellText(cells[0]) || '',
-    sku: cellText(cells[1]),
-    cat: cellText(cells[2]),
-    unit: cellText(cells[3]),
-    buy: cellNum(cells[4]),
-    sell: cellNum(cells[5]),
-    stock: cellNum(cells[6]),
-    min: cellNum(cells[7]),
+    sell: cellNum(cells[1]),
+    buy: cellNum(cells[2]),
+    stock: cellNum(cells[3]),
   })).filter((p) => p.name);
 }
 
 export const bulk = {
   title: 'ورود گروهی کالا',
-  subtitle: () => 'افزودن ده‌ها کالا با فایل اکسل/CSV یا کپی از جدول',
+  subtitle: () => 'فقط نام، قیمت فروش و قیمت خرید — کد کالا خودکار ساخته می‌شود',
   actions: () => '<button class="btn" data-sample>دانلود فایل نمونه</button>',
 
   render(ctx) {
     return `
-      ${banner('ستون‌ها به ترتیب: <b>نام کالا، کد، دسته، واحد، قیمت خرید، قیمت فروش، موجودی، حداقل</b>. در اکسل می‌توانید سلول‌ها را کپی کنید و مستقیم در کادر پایین Paste کنید.', 'blue', icon('download', 20))}
+      ${banner(`فقط سه ستون لازم است: <b>نام کالا، قیمت فروش، قیمت خرید</b> (ستون چهارم «موجودی» اختیاری است). اگر قیمت خرید خالی بماند، خودکار ${faNum(num(ctx.state.settings.autoMargin))}٪ کمتر از قیمت فروش محاسبه می‌شود و کد کالا هم خودکار ساخته می‌شود.`, 'blue', icon('download', 20))}
       <div class="grid cols-sidebar" style="margin-top:var(--sp-4)">
         ${card({
           title: '۱) داده را وارد کنید',
@@ -680,9 +677,9 @@ export const bulk = {
             </div>
             <div class="field">
               <label class="lbl" for="bulk-text">یا جدول را اینجا پیست کنید</label>
-              <textarea id="bulk-text" rows="10" placeholder="دریل بتون‌کن کارتن,DR-100,ابزار برقی,عدد,3200000,4000000,4,1"></textarea>
+              <textarea id="bulk-text" rows="10" placeholder="دریل بتون‌کن کارتن,4000000,3200000,4"></textarea>
             </div>
-            <label class="check"><input type="checkbox" id="bulk-merge" checked /> <span>اگر کالایی با همین نام/کد وجود دارد، به‌روز شود</span></label>
+            <label class="check"><input type="checkbox" id="bulk-merge" checked /> <span>اگر کالایی با همین نام وجود دارد، به‌روز شود</span></label>
             <div class="cluster" style="margin-top:var(--sp-4)">
               <button class="btn" id="bulk-preview">پیش‌نمایش</button>
               <button class="btn btn-primary" id="bulk-apply">ثبت کالاها</button>
@@ -715,13 +712,13 @@ export const bulk = {
       box.innerHTML = items.length
         ? table([
           { key: 'name', label: 'کالا' },
-          { key: 'cat', label: 'دسته' },
-          { key: 'buy', label: 'خرید', num: true },
           { key: 'sell', label: 'فروش', num: true },
+          { key: 'buy', label: 'خرید', num: true },
           { key: 'stock', label: 'موجودی', num: true },
         ], items.map((p) => ({
-          name: esc(p.name), cat: esc(p.cat || PRODUCT_CATS[0]), buy: money(p.buy ?? 0),
-          sell: money(p.sell ?? roundTo((p.buy ?? 0) * (1 + num(ctx.state.settings.autoMargin) / 100))),
+          name: esc(p.name),
+          sell: money(p.sell ?? 0),
+          buy: money(p.buy ?? buyFromSell(p.sell ?? 0, ctx.state.settings.autoMargin)),
           stock: faNum(p.stock ?? 0),
         })))
         : empty('داده‌ای شناسایی نشد', 'قالب ستون‌ها را بررسی کنید.', icon('upload', 28));
@@ -736,43 +733,38 @@ export const bulk = {
         if (!items.length) { toast('داده‌ای برای ثبت نیست.', 'red'); return; }
         const merge = $('#bulk-merge', root).checked;
         const margin = num(ctx.state.settings.autoMargin);
+        let skuSeed = Number(String(nextSku(ctx.state.products)).replace(/[^0-9]/g, ''));
         let added = 0;
         let updated = 0;
         items.forEach((p) => {
-          const existing = merge && ctx.state.products.find((x) => normText(x.name) === normText(p.name)
-            || (p.sku && x.sku && normText(x.sku) === normText(p.sku)));
-          const buy = p.buy ?? (existing ? num(existing.buy) : 0);
-          const sell = p.sell ?? (existing ? (num(existing.sell) || roundTo(buy * (1 + margin / 100)))
-            : roundTo(buy * (1 + margin / 100)));
+          const existing = merge && ctx.state.products.find((x) => normText(x.name) === normText(p.name));
+          const sell = p.sell ?? (existing ? num(existing.sell) : 0);
+          const buy = p.buy ?? (existing ? (num(existing.buy) || buyFromSell(sell, margin)) : buyFromSell(sell, margin));
           if (existing) {
             // فقط فیلدهای پرشده بازنویسی می‌شوند تا اطلاعات قبلی پاک نشود
             ctx.store.put('product', {
               ...existing,
               name: p.name || existing.name,
-              sku: p.sku ?? existing.sku,
-              cat: p.cat ?? existing.cat,
-              unit: p.unit ?? existing.unit,
+              sku: existing.sku || `K-${skuSeed + 1}`,
               buy,
               sell,
               stock: p.stock ?? num(existing.stock),
-              min: p.min ?? num(existing.min),
             });
             updated += 1;
           } else {
             ctx.store.put('product', {
               name: p.name,
-              sku: p.sku || '',
-              cat: p.cat || PRODUCT_CATS[0],
-              unit: p.unit || UNITS[0],
+              sku: `K-${skuSeed + 1}`,
+              unit: UNITS[0],
               buy,
               sell,
               stock: p.stock ?? 0,
-              min: p.min ?? 1,
-              brand: '',
+              min: 1,
               loc: '',
             });
             added += 1;
           }
+          skuSeed += 1;
         });
         toast(`${faNum(added)} کالای جدید و ${faNum(updated)} به‌روزرسانی ثبت شد`, 'green');
         textEl().value = '';
@@ -784,8 +776,8 @@ export const bulk = {
         // سطرها با خط جدید واقعی جدا می‌شوند، نه متن «\n»
         download('hesabyar-nemoone-kala.csv',
           [BULK_HEADER,
-            'دریل بتون‌کن کارتن,DR-100,ابزار برقی,عدد,3200000,4000000,4,1',
-            'پیچ خودکار ۴۰میلی,SC-40,پیچ و مهره,بسته,45000,60000,30,5'].join('\n'),
+            'دریل بتون‌کن کارتن,4000000,3200000,4',
+            'پیچ خودکار ۴۰میلی,60000,45000,30'].join('\n'),
           'text/csv;charset=utf-8');
       }
     });

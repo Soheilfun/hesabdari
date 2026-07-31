@@ -14,7 +14,7 @@
 import { auth, store } from './data.js';
 import {
   ACCOUNT_TYPES, CHEQUE_KINDS, CHEQUE_STATUS, CONTACT_ROLES, DOC_TYPES,
-  EXPENSE_CATS, INCOME_CATS, INVOICE_KINDS, PAY_METHODS, PRODUCT_CATS, UNITS,
+  EXPENSE_CATS, INCOME_CATS, INVOICE_KINDS, PAY_METHODS, UNITS,
   accountBalance, cashTotal, chequesDueSoon, currentMonthKey, invoiceBalance,
   invoicePaid, invoiceProfit, invoiceStatus, invoiceSubtotal, invoiceTax,
   invoiceTotal, isoPlusDays, isoToJalali, jalaliToIso, lastMonthKeys, lowStock,
@@ -81,7 +81,7 @@ function findProduct(term) {
   const exact = list.find((p) => normText(p.sku) && normText(p.sku) === t);
   if (exact) return exact;
   const ranked = list
-    .map((p) => ({ p, s: Math.max(score(term, p.name), score(term, p.sku), score(term, p.brand)) }))
+    .map((p) => ({ p, s: Math.max(score(term, p.name), score(term, p.sku)) }))
     .filter((x) => x.s >= 60)
     .sort((a, b) => b.s - a.s);
   return ranked.length ? ranked[0].p : null;
@@ -122,11 +122,22 @@ const nextInvoiceNo = () => {
   return String((nums.length ? Math.max(...nums) : 1000) + 1);
 };
 
+/** کد کالا خودکار است؛ مدل نباید کد بسازد */
+const nextSku = () => {
+  const nums = state().products
+    .map((p) => Number(String(p.sku || '').replace(/[^0-9]/g, '')))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  return `K-${(nums.length ? Math.max(...nums) : 1000) + 1}`;
+};
+
+/** درصد سود از قیمت فروش کم می‌شود تا قیمت خرید به دست بیاید */
+const buyFromSell = (sell, margin) => roundTo(num(sell) * (1 - num(margin) / 100));
+
 /** خروجی خوانا برای مدل: عدد لاتین (تا محاسبات را درست روایت کند) */
 const productBrief = (p) => clean({
-  name: p.name, sku: p.sku, cat: p.cat, unit: p.unit,
+  name: p.name, sku: p.sku, unit: p.unit,
   buy: num(p.buy), sell: num(p.sell), stock: num(p.stock), min: num(p.min),
-  brand: p.brand, loc: p.loc,
+  loc: p.loc,
 });
 
 const contactName = (id) => state().contacts.find((c) => c.id === id)?.name || '';
@@ -172,16 +183,14 @@ export const TOOLS = {
     desc: 'جست‌وجوی کالاها در انبار. برای دیدن قیمت، موجودی و کد کالا.',
     params: {
       query: S.str('نام یا بخشی از نام کالا یا کد'),
-      cat: S.str('فقط این دسته'),
       lowStockOnly: S.bool('فقط کالاهایی که موجودی‌شان به حداقل رسیده'),
       limit: S.numb('حداکثر تعداد نتیجه (پیش‌فرض ۲۵)'),
     },
-    run: ({ query, cat, lowStockOnly, limit }) => {
+    run: ({ query, lowStockOnly, limit }) => {
       let list = lowStockOnly ? lowStock(state()) : state().products;
-      if (cat) list = list.filter((p) => score(cat, p.cat) >= 60);
       if (query) {
         list = list
-          .map((p) => ({ p, s: Math.max(score(query, p.name), score(query, p.sku), score(query, p.brand), score(query, p.cat)) }))
+          .map((p) => ({ p, s: Math.max(score(query, p.name), score(query, p.sku)) }))
           .filter((x) => x.s > 0).sort((a, b) => b.s - a.s).map((x) => x.p);
       }
       const total = list.length;
@@ -458,44 +467,44 @@ export const TOOLS = {
     write: true,
     params: {
       name: S.str('نام کالا (الزامی)'),
-      sku: S.str('کد کالا'),
-      cat: S.enumr(PRODUCT_CATS, 'دسته'),
       unit: S.enumr(UNITS, 'واحد'),
-      buy: S.numb('قیمت خرید (تومان)'),
-      sell: S.numb('قیمت فروش (تومان)؛ خالی = محاسبه خودکار از درصد سود'),
+      sell: S.numb('قیمت فروش (تومان)'),
+      buy: S.numb('قیمت خرید (تومان)؛ خالی = درصد سود از قیمت فروش کم می‌شود'),
       stock: S.numb('موجودی'),
       min: S.numb('حداقل موجودی برای هشدار'),
-      brand: S.str('برند'),
       loc: S.str('محل نگهداری'),
     },
     preview: (a) => {
-      const existing = findProduct(a.sku || a.name);
+      const existing = findProduct(a.name);
+      const margin = num(state().settings.autoMargin || 20);
       const lines = [
         `نام: ${a.name || existing?.name || '—'}`,
-        a.sku ? `کد: ${a.sku}` : '',
-        a.cat ? `دسته: ${a.cat}` : '',
-        a.buy !== undefined ? `قیمت خرید: ${num(a.buy)}` : '',
         a.sell !== undefined ? `قیمت فروش: ${num(a.sell)}` : '',
+        a.buy !== undefined
+          ? `قیمت خرید: ${num(a.buy)}`
+          : (a.sell !== undefined ? `قیمت خرید (خودکار ${margin}٪ کمتر): ${buyFromSell(a.sell, margin)}` : ''),
         a.stock !== undefined ? `موجودی: ${num(a.stock)}` : '',
+        existing ? '' : `کد خودکار: ${nextSku()}`,
       ].filter(Boolean);
       return { title: existing ? `ویرایش کالا: ${existing.name}` : 'افزودن کالای جدید', lines };
     },
     run: (a) => {
-      if (!a.name && !a.sku) return { error: 'نام یا کد کالا لازم است.' };
+      if (!a.name) return { error: 'نام کالا لازم است.' };
       const settings = state().settings;
-      const existing = findProduct(a.sku || a.name);
-      const buy = a.buy !== undefined ? num(a.buy) : num(existing?.buy);
-      const autoSell = roundTo(buy * (1 + num(settings.autoMargin || 20) / 100));
+      const existing = findProduct(a.name);
+      const margin = num(settings.autoMargin || 20);
+      const sell = a.sell !== undefined ? num(a.sell) : num(existing?.sell);
+      const buy = a.buy !== undefined
+        ? num(a.buy)
+        : (num(existing?.buy) || buyFromSell(sell, margin));
       const record = {
         ...(existing || {}),
         name: a.name || existing?.name,
-        sku: a.sku ?? existing?.sku ?? '',
-        brand: a.brand ?? existing?.brand ?? '',
-        cat: a.cat || existing?.cat || PRODUCT_CATS[0],
+        sku: existing?.sku || nextSku(),
         unit: a.unit || existing?.unit || UNITS[0],
         loc: a.loc ?? existing?.loc ?? '',
         buy,
-        sell: a.sell !== undefined ? num(a.sell) : (num(existing?.sell) || autoSell),
+        sell,
         stock: a.stock !== undefined ? num(a.stock) : num(existing?.stock),
         min: a.min !== undefined ? num(a.min) : (existing ? num(existing.min) : 1),
       };
@@ -515,11 +524,9 @@ export const TOOLS = {
           type: 'object',
           properties: {
             name: S.str('نام کالا'),
-            sku: S.str('کد'),
-            cat: S.str('دسته'),
             unit: S.str('واحد'),
-            buy: S.numb('قیمت خرید'),
             sell: S.numb('قیمت فروش'),
+            buy: S.numb('قیمت خرید؛ خالی = خودکار از قیمت فروش'),
             stock: S.numb('موجودی'),
             min: S.numb('حداقل'),
           },
@@ -529,7 +536,7 @@ export const TOOLS = {
     },
     preview: (a) => ({
       title: `ثبت گروهی ${(a.items || []).length} کالا`,
-      lines: (a.items || []).slice(0, 12).map((it) => `${it.name} — خرید ${num(it.buy)} / فروش ${num(it.sell) || 'خودکار'} / موجودی ${num(it.stock)}`)
+      lines: (a.items || []).slice(0, 12).map((it) => `${it.name} — فروش ${num(it.sell)} / خرید ${it.buy !== undefined ? num(it.buy) : 'خودکار'} / موجودی ${num(it.stock)}`)
         .concat((a.items || []).length > 12 ? ['…'] : []),
     }),
     run: (a) => {
@@ -548,13 +555,12 @@ export const TOOLS = {
   },
 
   bump_prices: {
-    desc: 'افزایش یا کاهش درصدی قیمت کالاها (همه یا یک دسته).',
+    desc: 'افزایش یا کاهش درصدی قیمت کالاها (همه یا چند کالای مشخص).',
     write: true,
     danger: true,
     params: {
       percent: S.numb('درصد تغییر؛ منفی برای کاهش (الزامی)'),
       target: S.enumr(['فروش', 'خرید', 'هر دو'], 'روی کدام قیمت اعمال شود'),
-      cat: S.str('فقط این دسته؛ خالی = همه دسته‌ها'),
       productNames: { type: 'array', description: 'فقط این کالاهای مشخص', items: { type: 'string' } },
       roundStep: S.numb('گرد کردن به مضرب (پیش‌فرض ۱۰۰۰)'),
     },
@@ -624,7 +630,7 @@ export const TOOLS = {
     },
     preview: (a) => ({
       title: findContact(a.name) ? `ویرایش طرف حساب: ${a.name}` : `طرف حساب جدید: ${a.name}`,
-      lines: [a.role ? `نقش: ${a.role}` : '', a.phone ? `تماس: ${a.phone}` : '', a.address ? `نشانی: ${a.address}` : ''].filter(Boolean),
+      lines: [a.role ? `نقش: ${a.role}` : '', a.phone ? `��ماس: ${a.phone}` : '', a.address ? `نشانی: ${a.address}` : ''].filter(Boolean),
     }),
     run: (a) => {
       if (!a.name) return { error: 'نام طرف حساب لازم است.' };
@@ -734,7 +740,7 @@ export const TOOLS = {
             });
           } else {
             store.put('product', {
-              name: it.desc, sku: '', brand: '', cat: PRODUCT_CATS[0], unit: UNITS[0], loc: '',
+              name: it.desc, sku: nextSku(), unit: UNITS[0], loc: '',
               buy: it.price, sell: roundTo(it.price * (1 + markup / 100)), stock: num(it.qty), min: 1,
             });
           }
@@ -993,7 +999,7 @@ export const TOOLS = {
       address: S.str('نشانی'),
       taxRate: S.numb('درصد مالیات بر ارزش افزوده'),
       buyMarkup: S.numb('درصد سود روی فاکتور خرید'),
-      autoMargin: S.numb('درصد سود خودکار کالای جدید'),
+      autoMargin: S.numb('درصد سود پیش‌فرض کالا (از قیمت فروش کم می‌شود)'),
       lowStockDays: S.numb('بازه هشدار چک و موجودی (روز)'),
       addNewFromPurchase: S.bool('کالای فاکتور خرید به انبار اضافه شود'),
     },
@@ -1038,6 +1044,221 @@ export const TOOLS = {
       return { ok: true, deleted: found.label };
     },
   },
+
+  /* --------------------- گزارش‌ها و یادآورهای تکمیلی --------------------- */
+
+  cheques_due_soon: {
+    desc: 'یادآور چک: چک‌های نزدیک سررسید و چک‌های سررسیدگذشته.',
+    params: {
+      days: S.numb('تا چند روز آینده (پیش‌فرض از تنظیمات)'),
+      kind: S.enumr(CHEQUE_KINDS, 'فقط دریافتی یا پرداختی'),
+    },
+    run: ({ days, kind }) => {
+      const s = state();
+      const span = num(days) || num(s.settings.lowStockDays) || 7;
+      const today = todayIso();
+      let list = chequesDueSoon(s, span);
+      if (kind) list = list.filter((c) => c.kind === kind);
+      const overdue = list.filter((c) => String(c.due) < today);
+      const upcoming = list.filter((c) => String(c.due) >= today);
+      const totalOf = (arr) => arr.reduce((acc, c) => acc + num(c.amount), 0);
+      return {
+        days: span,
+        today: isoToJalali(today),
+        overdueCount: overdue.length,
+        overdueAmount: totalOf(overdue),
+        upcomingCount: upcoming.length,
+        upcomingAmount: totalOf(upcoming),
+        overdue: overdue.map(chequeBrief),
+        upcoming: upcoming.map(chequeBrief),
+      };
+    },
+  },
+
+  contact_balances: {
+    desc: 'فهرست بدهکاران و بستانکاران بر اساس مانده فاکتورها (چه کسی چقدر بدهکار است).',
+    params: {
+      side: S.enumr(['بدهکار', 'بستانکار', 'هر دو'], 'بدهکار = طلب ما، بستانکار = بدهی ما'),
+      limit: S.numb('حداکثر تعداد (پیش‌فرض ۲۰)'),
+    },
+    run: ({ side, limit }) => {
+      const s = state();
+      const map = new Map();
+      for (const inv of s.invoices) {
+        const bal = invoiceBalance(inv, s.txns);
+        if (!bal) continue;
+        const key = inv.contactId || '_';
+        const row = map.get(key) || { contact: contactName(inv.contactId) || 'متفرقه', receivable: 0, payable: 0 };
+        if (inv.kind === 'فروش') row.receivable += bal;
+        else if (inv.kind === 'مرجوعی فروش') row.receivable -= bal;
+        else if (inv.kind === 'خرید') row.payable += bal;
+        else if (inv.kind === 'مرجوعی خرید') row.payable -= bal;
+        map.set(key, row);
+      }
+      let rows = [...map.values()].filter((r) => r.receivable || r.payable);
+      if (side === 'بدهکار') rows = rows.filter((r) => r.receivable > 0);
+      if (side === 'بستانکار') rows = rows.filter((r) => r.payable > 0);
+      rows.sort((a, b) => (b.receivable + b.payable) - (a.receivable + a.payable));
+      return {
+        totalReceivable: receivable(s),
+        totalPayable: payable(s),
+        contacts: rows.slice(0, Math.min(num(limit) || 20, 60)),
+      };
+    },
+  },
+
+  contact_statement: {
+    desc: 'صورت‌حساب یک طرف حساب: فاکتورها، پرداخت‌ها، چک‌ها و مانده نهایی.',
+    params: {
+      contact: S.str('نام مشتری یا تامین‌کننده (الزامی)'),
+      limit: S.numb('حداکثر ردیف هر بخش (پیش‌فرض ۱۵)'),
+    },
+    run: ({ contact, limit }) => {
+      const s = state();
+      const c = findContact(contact);
+      if (!c) return { error: 'این طرف حساب پیدا نشد.' };
+      const cap = Math.min(num(limit) || 15, 60);
+      const newest = (a, b) => String(b.date || '').localeCompare(String(a.date || ''));
+      const invoices = s.invoices.filter((i) => i.contactId === c.id).sort(newest);
+      const payments = s.txns.filter((t) => t.contactId === c.id).sort(newest);
+      const cheques = s.cheques.filter((x) => x.contactId === c.id);
+      let rec = 0;
+      let pay = 0;
+      for (const inv of invoices) {
+        const bal = invoiceBalance(inv, s.txns);
+        if (inv.kind === 'فروش') rec += bal;
+        else if (inv.kind === 'مرجوعی فروش') rec -= bal;
+        else if (inv.kind === 'خرید') pay += bal;
+        else if (inv.kind === 'مرجوعی خرید') pay -= bal;
+      }
+      return {
+        contact: c.name,
+        role: c.role,
+        phone: c.phone,
+        invoiceCount: invoices.length,
+        receivable: rec,
+        payable: pay,
+        netBalance: rec - pay,
+        invoices: invoices.slice(0, cap).map(invoiceBrief),
+        payments: payments.slice(0, cap).map(txnBrief),
+        cheques: cheques.map(chequeBrief),
+      };
+    },
+  },
+
+  profit_report: {
+    desc: 'گزارش سود و زیان یک ماه: فروش، سود فروش، درآمد، هزینه و سود خالص.',
+    params: { month: S.str('ماه شمسی مثل ۱۴۰۵-۰۵؛ خالی = ماه جاری') },
+    run: ({ month }) => {
+      const s = state();
+      const key = toMonthKey(month);
+      const sales = s.invoices.filter((i) => i.kind === 'فروش' && monthKey(i.date) === key);
+      const purchases = s.invoices.filter((i) => i.kind === 'خرید' && monthKey(i.date) === key);
+      const totalOf = (arr) => arr.reduce((acc, inv) => acc + invoiceTotal(inv), 0);
+      const grossProfit = monthSalesProfit(s, key);
+      const income = monthIncome(s, key);
+      const expense = monthExpense(s, key);
+      return {
+        month: monthKeyLabel(key),
+        invoiceCount: sales.length,
+        salesTotal: totalOf(sales),
+        purchaseTotal: totalOf(purchases),
+        grossProfit,
+        income,
+        expense,
+        netCash: income - expense,
+        netProfit: grossProfit - expense,
+      };
+    },
+  },
+
+  inventory_report: {
+    desc: 'گزارش انبار: ارزش انبار، کالاهای کم‌موجودی، کالاهای بی‌قیمت و سنگین‌ترین اقلام.',
+    params: { limit: S.numb('حداکثر ردیف هر بخش (پیش‌فرض ۱۰)') },
+    run: ({ limit }) => {
+      const s = state();
+      const cap = Math.min(num(limit) || 10, 40);
+      const missingPrice = s.products.filter((p) => !num(p.sell) || !num(p.buy));
+      const byValue = [...s.products].sort((a, b) => (num(b.stock) * num(b.buy)) - (num(a.stock) * num(a.buy)));
+      return {
+        productCount: s.products.length,
+        stockValue: stockValue(s),
+        lowStockCount: lowStock(s).length,
+        lowStockItems: lowStock(s).slice(0, cap).map(productBrief),
+        missingPriceItems: missingPrice.slice(0, cap).map(productBrief),
+        topByValue: byValue.slice(0, cap).map((p) => ({
+          name: p.name, stock: num(p.stock), buy: num(p.buy), value: num(p.stock) * num(p.buy),
+        })),
+      };
+    },
+  },
+
+  today_summary: {
+    desc: 'خلاصه امروز: فروش و خرید امروز، دریافت و پرداخت، موجودی نقدی و یادآورها.',
+    params: {},
+    run: () => {
+      const s = state();
+      const today = todayIso();
+      const invs = s.invoices.filter((i) => i.date === today);
+      const txns = s.txns.filter((t) => t.date === today);
+      const totalOf = (arr) => arr.reduce((acc, inv) => acc + invoiceTotal(inv), 0);
+      const sumOf = (arr) => arr.reduce((acc, t) => acc + num(t.amount), 0);
+      return {
+        date: isoToJalali(today),
+        salesCount: invs.filter((i) => i.kind === 'فروش').length,
+        salesTotal: totalOf(invs.filter((i) => i.kind === 'فروش')),
+        purchaseTotal: totalOf(invs.filter((i) => i.kind === 'خرید')),
+        incomeToday: sumOf(txns.filter((t) => t.type === 'درآمد')),
+        expenseToday: sumOf(txns.filter((t) => t.type === 'هزینه')),
+        cash: cashTotal(s),
+        receivable: receivable(s),
+        payable: payable(s),
+        lowStockCount: lowStock(s).length,
+        chequesDueSoonCount: chequesDueSoon(s, num(s.settings.lowStockDays) || 7).length,
+      };
+    },
+  },
+
+  bulk_adjust_stock: {
+    desc: 'تغییر موجودی چند کالا در یک مرحله (مناسب شمارش انبار).',
+    write: true,
+    params: {
+      items: {
+        type: 'array',
+        description: 'ردیف‌های شمارش انبار',
+        items: {
+          type: 'object',
+          properties: {
+            product: S.str('نام یا کد کالا'),
+            stock: S.numb('موجودی نهایی'),
+            delta: S.numb('تغییر نسبی؛ مثبت برای افزودن و منفی برای کاستن'),
+          },
+          required: ['product'],
+        },
+      },
+    },
+    preview: (a) => ({
+      title: `تغییر موجودی ${(a.items || []).length} کالا`,
+      lines: (a.items || []).slice(0, 12).map((it) => {
+        const change = it.stock !== undefined ? `موجودی = ${num(it.stock)}` : `تغییر ${num(it.delta)}`;
+        return `${it.product}: ${change}`;
+      }),
+    }),
+    run: (a) => {
+      const items = Array.isArray(a.items) ? a.items : [];
+      if (!items.length) return { error: 'فهرست کالا خالی است.' };
+      const updated = [];
+      const notFound = [];
+      for (const it of items) {
+        const p = findProduct(it && it.product);
+        if (!p) { notFound.push(it && it.product); continue; }
+        const next = it.stock !== undefined ? num(it.stock) : num(p.stock) + num(it.delta);
+        store.put('product', { ...p, stock: next });
+        updated.push({ name: p.name, stock: next });
+      }
+      return { ok: true, updatedCount: updated.length, products: updated, notFound };
+    },
+  },
 };
 
 /* --------------------------- توابع کمکی ابزارها --------------------------- */
@@ -1048,7 +1269,6 @@ function pickProductsForBump(a) {
     const ids = new Set(a.productNames.map((n) => findProduct(n)?.id).filter(Boolean));
     return list.filter((p) => ids.has(p.id));
   }
-  if (a.cat) list = list.filter((p) => score(a.cat, p.cat) >= 60);
   return list;
 }
 
@@ -1176,12 +1396,14 @@ export function systemInstruction() {
         '- اگر کاربر تأیید نکرد، اصرار نکن؛ فقط بپرس چه چیزی را باید عوض کنی.',
         '- اگر اطلاعات لازم ناقص است (مبلغ، تعداد، نام کالا)، فقط همان را بپرس؛ سوال‌پیچ نکن.',
         '- قیمت ردیف‌های فاکتور را خالی بگذار تا از قیمت ثبت‌شده کالا برداشته شود، مگر کاربر قیمت دیگری گفته باشد.',
-        '- برای حذف یا تغییر گروهی قیمت، حتماً اول دامنه کار را روشن کن (چند کالا، کدام دسته).',
+        '- برای حذف یا تغییر گروهی قیمت، حتماً اول دامنه کار را روشن کن (چند کالا و دقیقاً کدام کالاها).',
+        '- کد کالا خودکار ساخته می‌شود و دسته‌بندی و برند حذف شده‌اند؛ درباره‌شان سوال نکن.',
+        '- برای کالای جدید فقط نام و قیمت فروش را بگیر؛ قیمت خرید اگر گفته نشد، خودکار از قیمت فروش کم می‌شود.',
         '- در پایان کارِ ثبت‌شده را یک‌خطی خلاصه کن (مثلاً «فاکتور #۱۰۰۴ به مبلغ … ثبت شد»).',
         '',
         `امروز: ${isoToJalali(todayIso())} شمسی (${todayIso()} میلادی). ماه جاری: ${currentMonthKey()}.`,
         `حجم داده فعلی: ${s.products.length} کالا، ${s.contacts.length} طرف حساب، ${s.invoices.length} فاکتور، ${s.txns.length} تراکنش، ${s.cheques.length} چک، ${s.accounts.length} حساب.`,
-        `نرخ مالیات تنظیمات: ${num(s.settings.taxRate)}٪ — درصد سود خرید: ${num(s.settings.buyMarkup)}٪ — سود خودکار کالای جدید: ${num(s.settings.autoMargin)}٪.`,
+        `نرخ مالیات تنظیمات: ${num(s.settings.taxRate)}٪ — درصد سود خرید: ${num(s.settings.buyMarkup)}٪ — درصد سود پیش‌فرض کالا (کسر از قیمت فروش): ${num(s.settings.autoMargin)}٪.`,
         s.accounts.length ? `حساب‌ها: ${s.accounts.map((a) => a.name).join('، ')}.` : 'هنوز هیچ حسابی ثبت نشده است.',
       ].join('\n'),
     }],
@@ -1346,6 +1568,9 @@ export const SAMPLE_PROMPTS = [
   'کدام کالاها دارد تمام می‌شود؟',
   'بیشترین بدهکارهای من کی‌ها هستند؟',
   'چک‌های دو هفته آینده را بگو',
+  'خلاصه امروز را بگو',
+  'صورت‌حساب حسن رضایی را بده',
+  'گزارش انبار را بده',
   '۱۰ عدد پیچ خودکار ۴۰ فروختم، فاکتور بزن',
   '۲۰۰ هزار تومان هزینه حمل و نقل ثبت کن',
   'قیمت فروش همه کالاهای دسته پیچ و مهره را ۱۰ درصد زیاد کن',
