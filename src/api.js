@@ -209,7 +209,7 @@ async function handleExport(env) {
   for (const row of results || []) {
     (grouped[row.type] ||= []).push(JSON.parse(row.data));
   }
-  return json({ exportedAt: Date.now(), version: 2, data: grouped }, 200, {
+  return json({ exportedAt: Date.now(), version: 2, appVersion: '1.6.0-beta', data: grouped }, 200, {
     'content-disposition': 'attachment; filename="hesabyar-server-backup.json"',
   });
 }

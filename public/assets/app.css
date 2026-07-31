@@ -574,3 +574,89 @@ table.data td.actions .cluster { flex-wrap: nowrap; justify-content: flex-end; g
   .chat-log .bubble { max-width: 94%; }
   .chat-composer { padding: var(--sp-3); }
 }
+
+/* ===================== 8) بهینه‌سازی موبایل ===================== */
+
+@media (max-width: 720px) {
+  html, body { overflow-x: hidden; }
+  body { -webkit-text-size-adjust: 100%; }
+
+  /* جلوگیری از زوم خودکار مرورگر روی فیلدها (iOS) */
+  input, select, textarea { font-size: 16px !important; }
+
+  /* نوار بالا چسبان می‌ماند تا جست‌وجو و تیتر همیشه در دسترس باشد */
+  .topbar {
+    position: sticky; inset-block-start: 0; z-index: 40;
+    background: var(--canvas); border-bottom: 1px solid var(--border);
+    padding-block: 10px;
+  }
+
+  /* اهداف لمسی درست‌وحسابی */
+  .btn { min-height: 44px; }
+  .btn.btn-sm { min-height: 40px; }
+  .btn.btn-icon { min-width: 40px; }
+  .tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tabs .tab { min-height: 42px; white-space: nowrap; }
+  .check { min-height: 40px; align-items: center; }
+
+  /* هیچ ردیف دکمه‌ای از عرض صفحه نمی‌زند بیرون */
+  .cluster { flex-wrap: wrap; row-gap: var(--sp-2); }
+  .card-head { flex-wrap: wrap; row-gap: var(--sp-2); }
+  .page-head { flex-wrap: wrap; row-gap: var(--sp-2); }
+  .page-head h1 { flex: 1 1 100%; }
+
+  /* کارت‌های جایگزین جدول: عنوان ردیف برجسته‌تر و خواناتر */
+  table.data tbody tr { border-color: var(--border-strong); box-shadow: var(--shadow-1); }
+  table.data td:first-child {
+    font-weight: 650; font-size: .98rem; justify-content: flex-start;
+    border-bottom: 1px solid var(--border); padding-bottom: var(--sp-2); margin-bottom: var(--sp-1);
+  }
+  table.data td:first-child::before { content: none; }
+  table.data td.num { font-variant-numeric: tabular-nums; }
+  .table-wrap { overflow: visible; }
+
+  /* کشو: دکمه‌های ذخیره همیشه دیده می‌شوند */
+  .drawer { height: 94dvh; }
+  .drawer-foot {
+    position: sticky; inset-block-end: 0; background: var(--canvas);
+    padding-bottom: calc(var(--sp-3) + env(safe-area-inset-bottom));
+    box-shadow: 0 -2px 10px rgba(0,0,0,.05);
+  }
+  .drawer-foot .btn { flex: 1 1 auto; justify-content: center; }
+
+  /* متن طولانی و لینک بدون سرریز */
+  .card, .bubble, .banner, td, .field { overflow-wrap: anywhere; }
+}
+
+@media (max-width: 420px) {
+  /* کارت‌های آمار دوستونه بمانند تا داشبورد بی‌نهایت بلند نشود */
+  .cols-2, .cols-3, .cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-3); }
+  .cols-sidebar { grid-template-columns: 1fr; }
+  .page { padding-inline: var(--sp-3); }
+  .card-body { padding: var(--sp-3); }
+  .stat .v { font-size: 1.02rem; }
+  .stat .k { font-size: .72rem; }
+  .tabbar button { font-size: .62rem; }
+  h1 { font-size: 1.2rem; }
+}
+
+/* دستیار هوشمند در موبایل: کادر نوشتن همیشه زیر دست */
+@media (max-width: 720px) {
+  .chat-wrap { min-height: calc(100dvh - 210px); }
+  .chat-log { max-height: none; padding-inline: var(--sp-3); }
+  .chat-log .bubble { max-width: 92%; font-size: 15px; }
+  .chat-composer {
+    position: sticky; inset-block-end: 0; z-index: 5;
+    background: var(--canvas); padding-bottom: calc(var(--sp-2) + env(safe-area-inset-bottom));
+  }
+  .chat-composer textarea { min-height: 46px; }
+  .chat-samples { justify-content: flex-start; }
+  .chat-samples .chip { min-height: 40px; }
+  .confirm-card { max-width: 96%; }
+  .confirm-card .cc-actions .btn { flex: 1 1 auto; justify-content: center; }
+}
+
+/* برچسب نسخه در نوار کناری */
+.rail-brand .ver { font-size: .7rem; color: var(--text-3); margin-top: 2px; }
+@media (max-width: 1024px) { .rail-brand .ver { display: none; } }
