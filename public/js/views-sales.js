@@ -14,6 +14,7 @@ import {
   $, $$, banner, card, chip, confirmDialog, dateField, download, empty, icon,
   number as numberField, openDrawer, rowActions, select, stat, table, text, textarea, toast,
 } from './ui.js';
+import { chequeAlertText, chequeAlerts } from './notify.js';
 
 export const contactOptions = (state) => state.contacts.map((c) => ({ v: c.id, t: c.name }));
 export const accountOptions = (state) => state.accounts.map((a) => ({ v: a.id, t: a.name }));
@@ -35,13 +36,13 @@ export const dashboard = {
     const months = lastMonthKeys(6);
 
     const low = lowStock(state);
-    const soon = chequesDueSoon(state, 7);
+    const cheque = chequeAlerts(state);
     const overdue = state.invoices.filter((i) => i.kind === 'فروش' && invoiceStatus(i, state.txns).key === 'overdue');
 
     const alerts = [
       low.length ? banner(`<b>${faNum(low.length)} کالا</b> به حداقل موجودی رسیده است.`, 'orange', icon('alert'),
         '<button class="btn btn-sm" data-go="products">دیدن کالاها</button>') : '',
-      soon.length ? banner(`<b>${faNum(soon.length)} چک</b> تا ۷ روز آینده سررسید می‌شود.`, 'red', icon('cheque'),
+      (cheque.overdue.length || cheque.upcoming.length) ? banner(`<b>یادآور چک</b> — ${chequeAlertText(cheque)}`, cheque.overdue.length ? 'red' : 'orange', icon('cheque'),
         '<button class="btn btn-sm" data-go="cheques">دیدن چک‌ها</button>') : '',
       overdue.length ? banner(`<b>${faNum(overdue.length)} فاکتور فروش</b> معوق شده است.`, 'blue', icon('invoice'),
         '<button class="btn btn-sm" data-go="invoices">پیگیری</button>') : '',

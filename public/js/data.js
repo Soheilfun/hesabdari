@@ -40,6 +40,8 @@ export const DEFAULT_SETTINGS = {
   autoMargin: 20,
   addNewFromPurchase: true,
   lowStockDays: 7,
+  chequeNotify: true,
+  chequeNotifyDays: 7,
 };
 
 const emptyState = () => ({

@@ -8,6 +8,7 @@ import { debounce, esc, faNum } from './core.js';
 import { bulk, dashboard, invoices, products } from './views-sales.js';
 import { accounts, budgets, cheques, contacts, docs, money_, reports, settings } from './views-finance.js';
 import { chat } from './views-chat.js';
+import { runChequeReminder } from './notify.js';
 
 /* ------------------------------- تعریف صفحات ------------------------------- */
 
@@ -158,6 +159,8 @@ async function showApp() {
   render();
   await store.sync({ full: !store.state.products.length && !store.state.invoices.length });
   render();
+  // یادآور چک: روزی یک‌بار و فقط اگر اجازه داده شده باشد
+  try { runChequeReminder(store.state); } catch { /* بی‌اهمیت */ }
 }
 
 /* --------------------------------- راه‌اندازی --------------------------------- */
