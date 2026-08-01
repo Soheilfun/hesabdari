@@ -14,3 +14,4 @@ database_id = "26be07a9-62f4-4736-a14e-32f2176e40de"
 [observability.logs]
 enabled = true
 invocation_logs = true
+
