@@ -1,5 +1,5 @@
 /* Service worker — پوسته برنامه آفلاین کار می‌کند؛ درخواست‌های API هرگز کش نمی‌شوند. */
-const CACHE = 'hesabyar-shell-v1-7-beta';
+const CACHE = 'hesabyar-shell-v1-7-2';
 const SHELL = [
   '/', '/index.html', '/assets/app.css', '/manifest.webmanifest',
   '/js/app.js', '/js/core.js', '/js/data.js', '/js/ui.js',

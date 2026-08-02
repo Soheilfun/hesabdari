@@ -244,18 +244,16 @@ export async function handleChat(request, env) {
       accept: 'application/json',
       authorization: 'Bearer ' + openAiKey,
     };
+    // ابزارها قبل از ساخت payload آماده می‌شوند تا شیء در جای دیگر دستکاری نشود
+    const tools = toOpenAiTools(body.tools);
     payload = {
       model,
       messages: toOpenAiMessages(contents, body.systemInstruction),
       temperature,
       max_tokens: 2048,
       stream: false,
+      ...(tools.length ? { tools, tool_choice: 'auto' } : {}),
     };
-    const tools = toOpenAiTools(body.tools);
-    if (tools.length) {
-      payload.tools = tools;
-      payload.tool_choice = 'auto';
-    }
   } else {
     model = env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL;
     url = GEMINI_BASE + encodeURIComponent(model) + ':generateContent';
@@ -263,12 +261,13 @@ export async function handleChat(request, env) {
       'content-type': 'application/json',
       'x-goog-api-key': geminiKey,
     };
+    const geminiTools = Array.isArray(body.tools) && body.tools.length ? body.tools : null;
     payload = {
       contents,
       generationConfig: { temperature, maxOutputTokens: 2048 },
+      ...(body.systemInstruction ? { systemInstruction: body.systemInstruction } : {}),
+      ...(geminiTools ? { tools: geminiTools } : {}),
     };
-    if (body.systemInstruction) payload.systemInstruction = body.systemInstruction;
-    if (Array.isArray(body.tools) && body.tools.length) payload.tools = body.tools;
   }
 
   const serialized = JSON.stringify(payload);
