@@ -8,8 +8,8 @@ binding = "ASSETS"
 
 [[d1_databases]]
 binding = "DB"
-database_name = "hesabyar"
-database_id = "26be07a9-62f4-4736-a14e-32f2176e40de"
+database_name = "hesabyar2"
+database_id = "7e883752-9059-42e7-90b5-12e5d0888a9d"
 
 [observability.logs]
 enabled = true
