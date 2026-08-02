@@ -16,16 +16,6 @@ import {
   number as numberField, openDrawer, rowActions, select, stat, table, text, textarea, toast,
 } from './ui.js';
 import { api, auth, store as dataStore } from './data.js';
-import {
-  chequeAlertText, chequeAlerts, notifyPermission, requestNotifyPermission, runChequeReminder,
-} from './notify.js';
-
-/** متن وضعیت اجازه اعلان مرورگر */
-const notifyStateLabel = () => ({
-  granted: 'اعلان مرورگر فعال است.',
-  denied: 'اعلان مسدود شده است؛ از تنظیمات مرورگر مجاز کنید.',
-  unsupported: 'مرورگر شما از اعلان پشتیبانی نمی‌کند؛ بنر داخل برنامه کار می‌کند.',
-}[notifyPermission()] || 'اعلان هنوز فعال نشده است.');
 
 const contactOptions = (state) => state.contacts.map((c) => ({ v: c.id, t: c.name }));
 const accountOptions = (state) => state.accounts.map((a) => ({ v: a.id, t: a.name }));
@@ -276,7 +266,7 @@ export const contacts = {
         name: `<b>${esc(c.name)}</b>${c.address ? `<div class="tiny muted">${esc(c.address)}</div>` : ''}`,
         role: chip(c.role, c.role === 'مشتری' ? 'green' : c.role === 'تأمین‌کننده' ? 'blue' : ''),
         phone: `<span class="nums">${esc(c.phone || '—')}</span>`,
-        balance: balance === 0 ? 'تسویه' : `${money(Math.abs(balance))} <span class="tiny muted">${balance > 0 ? 'طلب ما' : 'بدهی ما'}</span>`,
+        balance: balance === 0 ? chip('تسویه', '') : `<b class="nums">${money(Math.abs(balance))}</b> ${balance > 0 ? chip('بدهکار', 'green') : chip('بستانکار', 'red')}`,
         actions: rowActions([
           { icon: icon('edit'), title: 'ویرایش', attrs: `data-edit="${c.id}"` },
           { icon: icon('trash'), title: 'حذف', attrs: `data-del="${c.id}"`, danger: true },
@@ -284,7 +274,14 @@ export const contacts = {
       };
     });
 
-    return card({
+    const totalDebtor = list.reduce((a, c) => (balanceOf(c.id) > 0 ? a + balanceOf(c.id) : a), 0);
+    const totalCreditor = list.reduce((a, c) => (balanceOf(c.id) < 0 ? a - balanceOf(c.id) : a), 0);
+
+    return `<div class="grid cols-3" style="margin-bottom:var(--sp-4)">
+      ${stat({ label: 'جمع بدهکاران (طلب ما)', value: moneyShort(totalDebtor), unit: 'تومان', tone: 'green' })}
+      ${stat({ label: 'جمع بستانکاران (بدهی ما)', value: moneyShort(totalCreditor), unit: 'تومان', tone: 'red' })}
+      ${stat({ label: 'تعداد طرف حساب', value: faNum(list.length) })}
+    </div>` + card({
       body: table([
         { key: 'name', label: 'نام' },
         { key: 'role', label: 'نوع' },
@@ -709,10 +706,6 @@ export const settings = {
               ${numberField('autoMargin', 'درصد سود پیش‌فرض کالا', s.autoMargin, { hint: 'قیمت خرید = قیمت فروش منهای این درصد' })}
             </div>
             ${'<label class="check"><input type="checkbox" name="addNewFromPurchase"' + (s.addNewFromPurchase ? ' checked' : '') + ' /> <span>کالاهای فاکتور خرید به صورت پیش‌فرض به لیست محصولات اضافه شود</span></label>'}
-            <div class="form-grid">
-              ${numberField('chequeNotifyDays', 'یادآور چک: چند روز قبل از سررسید', s.chequeNotifyDays ?? 7, { hint: 'مثلاً ۷ یعنی چک‌های یک هفته آینده' })}
-            </div>
-            <label class="check"><input type="checkbox" name="chequeNotify"${s.chequeNotify === false ? '' : ' checked'} /> <span>یادآور چک فعال باشد</span></label>
             <div class="cluster" style="margin-top:var(--sp-4)"><button type="button" class="btn btn-primary" id="save-settings">ذخیره تنظیمات</button></div>
             </form>`,
           })}
@@ -724,16 +717,6 @@ export const settings = {
                 <button class="btn" id="force-sync">همگام‌سازی کامل مجدد</button>
                 <button class="btn btn-danger" id="wipe">پاک کردن همه داده‌ها</button>
               </div>`,
-          })}
-          ${card({
-            title: 'یادآور چک',
-            body: `<p class="small muted">هر بار که برنامه را باز کنید، اگر چکی سررسیدگذشته یا نزدیک به سررسید داشته باشید، روزی یک‌بار نوتیفیکیشن می‌گیرید.</p>
-              <div class="cluster">
-                <button class="btn" id="notify-enable">فعال‌سازی اعلان مرورگر</button>
-                <button class="btn" id="notify-test">آزمایش یادآور</button>
-              </div>
-              <p class="small muted" style="margin-top:var(--sp-3)">${esc(notifyStateLabel())}</p>
-              <p class="small muted">${esc(chequeAlertText(chequeAlerts(ctx.state)) || 'در حال حاضر چک سررسیدگذشته یا نزدیکی ندارید.')}</p>`,
           })}
         </div>
         ${card({
@@ -764,26 +747,9 @@ export const settings = {
         ctx.store.put('settings', {
           ...ctx.state.settings, ...values,
           taxRate: num(values.taxRate), buyMarkup: num(values.buyMarkup), autoMargin: num(values.autoMargin),
-          chequeNotifyDays: num(values.chequeNotifyDays) || 7,
         });
         toast('تنظیمات ذخیره شد', 'green');
         ctx.refresh();
-      }
-
-      if (e.target.closest('#notify-enable')) {
-        const res = await requestNotifyPermission();
-        if (res === 'granted') toast('اعلان‌ها فعال شد', 'green');
-        else if (res === 'unsupported') toast('مرورگر شما از اعلان پشتیبانی نمی‌کند', 'red');
-        else toast('اجازه داده نشد؛ از تنظیمات مرورگر اعلان این سایت را مجاز کنید', 'red');
-        ctx.refresh();
-      }
-
-      if (e.target.closest('#notify-test')) {
-        const res = runChequeReminder(ctx.state, { force: true });
-        if (res.sent) toast('یادآور آزمایشی فرستاده شد', 'green');
-        else if (res.reason === 'permission') toast('اول اعلان مرورگر را فعال کنید', 'red');
-        else if (res.reason === 'unsupported') toast('مرورگر شما از اعلان پشتیبانی نمی‌کند', 'red');
-        else toast('چکی برای یادآوری نیست');
       }
 
       if (e.target.closest('#backup')) {

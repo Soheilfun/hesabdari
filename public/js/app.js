@@ -8,7 +8,6 @@ import { debounce, esc, faNum } from './core.js';
 import { bulk, dashboard, invoices, products } from './views-sales.js';
 import { accounts, budgets, cheques, contacts, docs, money_, reports, settings } from './views-finance.js';
 import { chat } from './views-chat.js';
-import { runChequeReminder } from './notify.js';
 
 /* ------------------------------- تعریف صفحات ------------------------------- */
 
@@ -31,7 +30,6 @@ const NAV = [
     items: [
       { key: 'invoices', label: 'فاکتورها', icon: 'invoice' },
       { key: 'products', label: 'کالاها', icon: 'box' },
-      { key: 'bulk', label: 'ورود گروهی', icon: 'upload' },
       { key: 'contacts', label: 'طرف حساب‌ها', icon: 'users' },
     ],
   },
@@ -159,8 +157,6 @@ async function showApp() {
   render();
   await store.sync({ full: !store.state.products.length && !store.state.invoices.length });
   render();
-  // یادآور چک: روزی یک‌بار و فقط اگر اجازه داده شده باشد
-  try { runChequeReminder(store.state); } catch { /* بی‌اهمیت */ }
 }
 
 /* --------------------------------- راه‌اندازی --------------------------------- */
@@ -177,6 +173,8 @@ function bindShell() {
     if (go) writeHash(go.dataset.go);
     const inv = e.target.closest('[data-new-invoice]');
     if (inv) invoices.openForm(ctx, null);
+    const qs = e.target.closest('[data-quick-sale]');
+    if (qs) products.quickSale(ctx);
   });
 
   window.addEventListener('hashchange', () => { readHash(); render(); $('#page').focus(); });

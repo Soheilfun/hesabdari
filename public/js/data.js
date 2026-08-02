@@ -40,8 +40,6 @@ export const DEFAULT_SETTINGS = {
   autoMargin: 20,
   addNewFromPurchase: true,
   lowStockDays: 7,
-  chequeNotify: true,
-  chequeNotifyDays: 7,
 };
 
 const emptyState = () => ({
@@ -293,7 +291,8 @@ class Store extends EventTarget {
       // عملیاتی که موفق رفتند از صف حذف می‌شوند (بقیه دفعه بعد می‌روند)
       const changed = (sending.length ? false : this._merge(res.records || [])) || !!this._chunkChanged;
       this._chunkChanged = false;
-      this.cursor = res.serverTime || Date.now();
+      // ۳ ثانیه هم‌پوشانی تا تغییری در مرز زمانی جا نماند
+      this.cursor = Math.max(0, (res.serverTime || Date.now()) - 3000);
       this._persistCache();
       this.setStatus({ syncing: false, online: true, lastSync: Date.now(), error: '' });
       if (changed || full) this.emitChange();
@@ -325,8 +324,20 @@ class Store extends EventTarget {
     window.addEventListener('offline', () => this.setStatus({ online: false }));
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') this.sync();
+      this._scheduleTick(400);
     });
-    setInterval(() => this.sync(), 45000);
+    window.addEventListener('focus', () => this.sync());
+    this._scheduleTick(1500);
+  }
+
+  /** نظرسنجی زنده: وقتی برنامه باز است هر ۷ ثانیه، در پس‌زمینه هر ۳۰ ثانیه */
+  _scheduleTick(delay = 7000) {
+    clearTimeout(this._pollTimer);
+    this._pollTimer = setTimeout(async () => {
+      await this.sync();
+      const visible = typeof document === 'undefined' || document.visibilityState === 'visible';
+      this._scheduleTick(visible ? 7000 : 30000);
+    }, delay);
   }
 }
 
