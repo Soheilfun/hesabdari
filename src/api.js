@@ -261,7 +261,7 @@ async function handleShopCatalog(env) {
   }
 
   products.sort((a, b) => a.name.localeCompare(b.name, 'fa'));
-  return json({ shop, products }, 200, { 'cache-control': 'public, max-age=60' });
+  return json({ shop, products }, 200, { 'cache-control': 'no-store' });
 }
 
 /** ثبت سفارش مشتری از ویترین؛ قیمت‌ها همیشه از سرور خوانده می‌شوند */
@@ -279,17 +279,23 @@ async function handleShopOrder(request, env) {
 
   const placeholders = ids.map((_, i) => `?${i + 1}`).join(', ');
   const { results } = await env.DB
-    .prepare(`SELECT data FROM records WHERE type = 'product' AND deleted = 0 AND id IN (${placeholders})`)
+    .prepare(`SELECT type, data FROM records WHERE deleted = 0
+      AND (type = 'settings' OR (type = 'product' AND id IN (${placeholders})))`)
     .bind(...ids)
     .all();
 
   const catalog = new Map();
+  let shopSettings = {};
   for (const row of results || []) {
     try {
-      const product = JSON.parse(row.data);
-      catalog.set(String(product.id), product);
+      const parsed = JSON.parse(row.data);
+      if (row.type === 'settings') shopSettings = parsed;
+      else catalog.set(String(parsed.id), parsed);
     } catch { /* رکورد خراب */ }
   }
+
+  // پیش‌فرض: موجودی همان لحظهٔ ثبت سفارش کم می‌شود
+  const reserve = shopSettings.shopReserveStock !== false;
 
   const lines = [];
   for (const it of items) {
@@ -321,16 +327,34 @@ async function handleShopOrder(request, env) {
     status: 'جدید',
     createdAt: now,
     source: 'سایت',
+    stockTaken: reserve,
   };
 
-  await env.DB.prepare(
-    `INSERT INTO records (id, type, data, updated_at, deleted, rev)
-     VALUES (?1, 'order', ?2, ?3, 0, 1)`,
-  ).bind(id, JSON.stringify(record), now).run();
+  const statements = [
+    env.DB.prepare(
+      `INSERT INTO records (id, type, data, updated_at, deleted, rev)
+       VALUES (?1, 'order', ?2, ?3, 0, 1)`,
+    ).bind(id, JSON.stringify(record), now),
+  ];
+
+  // کسر فوری موجودی تا لیست کالاها در برنامه و ویترین بلافاصله تازه شود
+  if (reserve) {
+    for (const line of lines) {
+      const product = catalog.get(line.productId);
+      if (!product) continue;
+      const updated = { ...product, stock: (Number(product.stock) || 0) - line.qty };
+      statements.push(env.DB.prepare(
+        `UPDATE records SET data = ?2, updated_at = ?3, rev = rev + 1
+         WHERE id = ?1 AND type = 'product' AND deleted = 0`,
+      ).bind(String(product.id), JSON.stringify(updated), now));
+    }
+  }
+
+  await env.DB.batch(statements);
 
   await audit(env, 'shop_order', 'order', id, request);
 
-  return json({ ok: true, no: record.no, total: record.total });
+  return json({ ok: true, no: record.no, total: record.total, stockTaken: reserve });
 }
 
 /* ------------------------------ entrypoint -------------------------------- */

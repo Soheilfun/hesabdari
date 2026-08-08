@@ -281,6 +281,7 @@ async function submitOrder() {
     writeJson(CART_KEY, state.cart);
     renderCount();
     renderList();
+    loadCatalog(); // موجودی تازه را بگیر
   } catch (err) {
     state.error = err.message || '\u062b\u0628\u062a \u0633\u0641\u0627\u0631\u0634 \u0645\u0645\u06a9\u0646 \u0646\u0634\u062f.';
   } finally {

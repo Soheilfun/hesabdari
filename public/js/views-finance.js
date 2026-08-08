@@ -706,6 +706,7 @@ export const settings = {
               ${numberField('autoMargin', 'درصد سود پیش‌فرض کالا', s.autoMargin, { hint: 'قیمت خرید = قیمت فروش منهای این درصد' })}
             </div>
             ${'<label class="check"><input type="checkbox" name="addNewFromPurchase"' + (s.addNewFromPurchase ? ' checked' : '') + ' /> <span>کالاهای فاکتور خرید به صورت پیش‌فرض به لیست محصولات اضافه شود</span></label>'}
+            ${'<label class="check"><input type="checkbox" name="shopReserveStock"' + (s.shopReserveStock !== false ? ' checked' : '') + ' /> <span>با ثبت سفارش در سایت، موجودی کالا بلافاصله کم شود</span></label>'}
             <div class="cluster" style="margin-top:var(--sp-4)"><button type="button" class="btn btn-primary" id="save-settings">ذخیره تنظیمات</button></div>
             </form>`,
           })}

@@ -40,6 +40,7 @@ export const DEFAULT_SETTINGS = {
   buyMarkup: 25,
   autoMargin: 20,
   addNewFromPurchase: true,
+  shopReserveStock: true,
   lowStockDays: 7,
 };
 

@@ -111,11 +111,14 @@ async function convertToInvoice(ctx, order) {
     note: `\u0633\u0641\u0627\u0631\u0634 \u0633\u0627\u06cc\u062a ${order.no || ''}${order.note ? ` \u2014 ${order.note}` : ''}`,
   });
 
-  items.forEach((it) => {
-    if (!it.productId) return;
-    const product = state.products.find((p) => p.id === it.productId);
-    if (product) store.put('product', { ...product, stock: num(product.stock) - it.qty });
-  });
+  // اگر هنگام ثبت سفارش موجودی کم شده، دوباره کم نمی‌شود
+  if (!order.stockTaken) {
+    items.forEach((it) => {
+      if (!it.productId) return;
+      const product = state.products.find((p) => p.id === it.productId);
+      if (product) store.put('product', { ...product, stock: num(product.stock) - it.qty });
+    });
+  }
 
   store.put('order', { ...order, status: '\u062a\u0628\u062f\u06cc\u0644 \u0628\u0647 \u0641\u0627\u06a9\u062a\u0648\u0631', invoiceId: invoice.id });
   toast(`\u0641\u0627\u06a9\u062a\u0648\u0631 #${faNum(invoice.no)} \u0633\u0627\u062e\u062a\u0647 \u0634\u062f`, 'green');
@@ -129,6 +132,7 @@ export const orders = {
   subtitle: () => '\u0633\u0641\u0627\u0631\u0634\u200c\u0647\u0627\u06cc\u06cc \u06a9\u0647 \u0645\u0634\u062a\u0631\u06cc\u200c\u0647\u0627 \u0627\u0632 \u0635\u0641\u062d\u0647\u0654 \u0648\u06cc\u062a\u0631\u06cc\u0646 \u062b\u0628\u062a \u06a9\u0631\u062f\u0647\u200c\u0627\u0646\u062f',
   actions: () => `
     <a class="btn" href="/shop.html" target="_blank" rel="noopener">\u062f\u06cc\u062f\u0646 \u0635\u0641\u062d\u0647\u0654 \u0641\u0631\u0648\u0634\u06af\u0627\u0647</a>
+    <button class="btn" data-refresh>به‌روزرسانی</button>
     <button class="btn btn-primary" data-copy-link>\u06a9\u067e\u06cc \u0644\u06cc\u0646\u06a9 \u0633\u0641\u0627\u0631\u0634</button>`,
 
   render(ctx) {
@@ -200,7 +204,16 @@ export const orders = {
   },
 
   mount(root, ctx) {
+    // به‌محض باز شدن صفحه، یک همگام‌سازی فوری تا سفارش‌های تازه دیده شوند
+    ctx.store.sync();
+
     root.addEventListener('click', async (e) => {
+      if (e.target.closest('[data-refresh]')) {
+        await ctx.store.sync();
+        toast('فهرست به‌روز شد', 'green');
+        return undefined;
+      }
+
       const tab = e.target.closest('[data-tab]');
       if (tab) return ctx.setParams({ tab: tab.dataset.tab });
 

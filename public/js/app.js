@@ -132,6 +132,18 @@ function render() {
 
 /* ------------------------------ نشانگر همگام ------------------------------ */
 
+/* اعلان لحظه‌ای سفارش تازهٔ سایت */
+let seenOrderIds = null;
+
+function announceNewOrders() {
+  const ids = new Set((store.state.orders || []).map((o) => o.id));
+  if (seenOrderIds === null) { seenOrderIds = ids; return; }
+  const fresh = [...ids].filter((id) => !seenOrderIds.has(id));
+  seenOrderIds = ids;
+  if (!fresh.length) return;
+  toast(`${faNum(fresh.length)} سفارش تازه از سایت رسید`, 'green');
+}
+
 function renderSync(status) {
   const chip = $('#sync-chip');
   const label = $('#sync-text');
@@ -221,6 +233,7 @@ function bindShell() {
   // با هر تغییر داده، صفحه فعلی هم تازه می‌شود (دیباونس برای عملیات گروهی)
   store.addEventListener('change', debounce(() => {
     if ($('#app').classList.contains('is-hidden')) return;
+    announceNewOrders();
     if ($('.scrim') || $('.dialog-scrim')) { renderNav(); return; } // هنگام باز بودن فرم فقط منو به‌روز شود
     render();
   }, 120));
