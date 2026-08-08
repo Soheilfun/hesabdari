@@ -24,7 +24,7 @@ const TOKEN_TTL_MS = 1000 * 60 * 60 * 24 * 30; // ۳۰ روز
 const MAX_OPS_PER_SYNC = 500;
 const ALLOWED_TYPES = new Set([
   'settings', 'account', 'contact', 'product',
-  'invoice', 'txn', 'cheque', 'budget', 'doc',
+  'invoice', 'txn', 'cheque', 'budget', 'doc', 'order',
 ]);
 
 /* ------------------------------ helpers ---------------------------------- */
@@ -209,7 +209,7 @@ async function handleExport(env) {
   for (const row of results || []) {
     (grouped[row.type] ||= []).push(JSON.parse(row.data));
   }
-  return json({ exportedAt: Date.now(), version: 2, appVersion: '1.6.0-beta', data: grouped }, 200, {
+  return json({ exportedAt: Date.now(), version: 2, appVersion: '1.8.0-beta', data: grouped }, 200, {
     'content-disposition': 'attachment; filename="hesabyar-server-backup.json"',
   });
 }
@@ -225,6 +225,114 @@ async function handleReset(request, env) {
   return json({ ok: true });
 }
 
+/* ---------------------------- shop (public) ------------------------------- */
+
+const onlyDigits = (v) => String(v ?? '').replace(/[^\d+]/g, '');
+
+/** فهرست عمومی کالاها برای صفحهٔ ویترین (بدون قیمت خرید و بدون دادهٔ مالی) */
+async function handleShopCatalog(env) {
+  const { results } = await env.DB
+    .prepare("SELECT type, data FROM records WHERE type IN ('product', 'settings') AND deleted = 0")
+    .all();
+
+  let shop = { name: 'فروشگاه', phone: '', address: '' };
+  const products = [];
+
+  for (const row of results || []) {
+    let data;
+    try { data = JSON.parse(row.data); } catch { continue; }
+    if (row.type === 'settings') {
+      shop = {
+        name: String(data.shop || shop.name),
+        phone: String(data.phone || ''),
+        address: String(data.address || ''),
+      };
+      continue;
+    }
+    if (data.shopHidden) continue;
+    products.push({
+      id: String(data.id || ''),
+      name: String(data.name || ''),
+      sku: String(data.sku || ''),
+      unit: String(data.unit || ''),
+      price: Number(data.sell) || 0,
+      stock: Number(data.stock) || 0,
+    });
+  }
+
+  products.sort((a, b) => a.name.localeCompare(b.name, 'fa'));
+  return json({ shop, products }, 200, { 'cache-control': 'public, max-age=60' });
+}
+
+/** ثبت سفارش مشتری از ویترین؛ قیمت‌ها همیشه از سرور خوانده می‌شوند */
+async function handleShopOrder(request, env) {
+  const body = await request.json().catch(() => ({}));
+  const name = String(body.name || '').trim().slice(0, 80);
+  const phone = onlyDigits(body.phone).slice(0, 20);
+  const items = Array.isArray(body.items) ? body.items.slice(0, 50) : [];
+
+  if (name.length < 2) return fail(400, 'bad_name', 'نام را کامل وارد کنید.');
+  if (phone.replace(/\D/g, '').length < 8) return fail(400, 'bad_phone', 'شمارهٔ تماس معتبر نیست.');
+
+  const ids = [...new Set(items.map((it) => String(it && it.id ? it.id : '')).filter(Boolean))];
+  if (!ids.length) return fail(400, 'empty_cart', 'سبد سفارش خالی است.');
+
+  const placeholders = ids.map((_, i) => `?${i + 1}`).join(', ');
+  const { results } = await env.DB
+    .prepare(`SELECT data FROM records WHERE type = 'product' AND deleted = 0 AND id IN (${placeholders})`)
+    .bind(...ids)
+    .all();
+
+  const catalog = new Map();
+  for (const row of results || []) {
+    try {
+      const product = JSON.parse(row.data);
+      catalog.set(String(product.id), product);
+    } catch { /* رکورد خراب */ }
+  }
+
+  const lines = [];
+  for (const it of items) {
+    const product = catalog.get(String(it && it.id ? it.id : ''));
+    const qty = Math.min(9999, Math.max(0, Math.round(Number(it && it.qty) || 0)));
+    if (!product || qty <= 0) continue;
+    lines.push({
+      productId: String(product.id),
+      desc: String(product.name || ''),
+      unit: String(product.unit || ''),
+      qty,
+      price: Number(product.sell) || 0,
+    });
+  }
+  if (!lines.length) return fail(400, 'empty_cart', 'کالاهای انتخابی معتبر نیستند.');
+
+  const now = Date.now();
+  const id = `order_${now.toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  const record = {
+    id,
+    no: `S-${String(now).slice(-6)}`,
+    name,
+    phone,
+    address: String(body.address || '').slice(0, 400),
+    note: String(body.note || '').slice(0, 400),
+    payMethod: String(body.payMethod || 'هماهنگی تلفنی').slice(0, 40),
+    items: lines,
+    total: lines.reduce((sum, l) => sum + l.qty * l.price, 0),
+    status: 'جدید',
+    createdAt: now,
+    source: 'سایت',
+  };
+
+  await env.DB.prepare(
+    `INSERT INTO records (id, type, data, updated_at, deleted, rev)
+     VALUES (?1, 'order', ?2, ?3, 0, 1)`,
+  ).bind(id, JSON.stringify(record), now).run();
+
+  await audit(env, 'shop_order', 'order', id, request);
+
+  return json({ ok: true, no: record.no, total: record.total });
+}
+
 /* ------------------------------ entrypoint -------------------------------- */
 
 export async function onRequest(context) {
@@ -238,6 +346,10 @@ export async function onRequest(context) {
 
   try {
     if (path === 'auth/login' && method === 'POST') return await handleLogin(request, env);
+
+    // مسیرهای عمومی ویترین فروشگاه (بدون نیاز به ورود)
+    if (path === 'shop/catalog' && method === 'GET') return await handleShopCatalog(env);
+    if (path === 'shop/order' && method === 'POST') return await handleShopOrder(request, env);
 
     // از اینجا به بعد همه مسیرها نیاز به توکن معتبر دارند
     const session = await verifyToken(env, bearer(request));

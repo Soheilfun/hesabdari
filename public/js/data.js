@@ -27,6 +27,7 @@ export const COLLECTIONS = {
   cheque: 'cheques',
   budget: 'budgets',
   doc: 'docs',
+  order: 'orders',
 };
 
 export const DEFAULT_SETTINGS = {
@@ -45,7 +46,7 @@ export const DEFAULT_SETTINGS = {
 const emptyState = () => ({
   settings: { ...DEFAULT_SETTINGS },
   accounts: [], contacts: [], products: [], invoices: [],
-  txns: [], cheques: [], budgets: [], docs: [],
+  txns: [], cheques: [], budgets: [], docs: [], orders: [],
 });
 
 const readJson = (key, fallback) => {

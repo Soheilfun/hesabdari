@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#ffffff" />
+<meta name="description" content="لیست کالاها با قیمت روز و ثبت سفارش آنلاین" />
+<title>ثبت سفارش</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%232783DE'/%3E%3Ctext x='32' y='44' font-size='34' text-anchor='middle' fill='white' font-family='sans-serif'%3E%D8%AD%3C/text%3E%3C/svg%3E" />
+<link rel="stylesheet" href="/assets/shop.css" />
+</head>
+<body>
+
+<header class="shop-top">
+  <div class="shop-top-inner">
+    <div class="shop-mark" aria-hidden="true">ح</div>
+    <div>
+      <h1 class="shop-title" id="shop-name">فروشگاه</h1>
+      <p class="shop-sub" id="shop-sub">لیست کالاها و ثبت سفارش</p>
+    </div>
+    <button class="cart-btn" id="cart-open" type="button">سبد سفارش <span class="cart-count" id="cart-count">۰</span></button>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="hero">
+    <h2>سفارش خود را همین‌جا ثبت کنید</h2>
+    <p class="small">کالای مورد نظر را از فهرست انتخاب کنید، تعداد را مشخص کنید و در پایان نام و شمارهٔ تماس‌تان را بگذارید. برای هماهنگی و اعلام هزینهٔ ارسال با شما تماس می‌گیریم.</p>
+  </section>
+
+  <div class="search-row">
+    <input id="q" type="search" placeholder="جست‌وجوی نام کالا یا کد…" autocomplete="off" />
+    <button class="btn" id="only-stock" type="button" aria-pressed="false">فقط موجودها</button>
+  </div>
+
+  <div id="list" class="list">
+    <div class="empty">در حال دریافت فهرست کالاها…</div>
+  </div>
+
+  <p class="foot" id="foot"></p>
+</main>
+
+<div class="overlay is-hidden" id="overlay"></div>
+<aside class="drawer is-hidden" id="drawer" role="dialog" aria-modal="true" aria-label="سبد سفارش">
+  <div class="drawer-head">
+    <h3 id="drawer-title">سبد سفارش</h3>
+    <button class="btn btn-sm" id="cart-close" type="button">بستن</button>
+  </div>
+  <div class="drawer-body" id="drawer-body"></div>
+  <div class="drawer-foot" id="drawer-foot"></div>
+</aside>
+
+<script src="/js/shop.js" type="module"></script>
+</body>
+</html>

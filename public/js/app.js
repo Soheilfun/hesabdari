@@ -8,12 +8,13 @@ import { debounce, esc, faNum } from './core.js';
 import { bulk, dashboard, invoices, products } from './views-sales.js';
 import { accounts, budgets, cheques, contacts, docs, money_, reports, settings } from './views-finance.js';
 import { chat } from './views-chat.js';
+import { orders } from './views-shop.js';
 
 /* ------------------------------- تعریف صفحات ------------------------------- */
 
 const VIEWS = {
   dashboard, chat, invoices, products, bulk,
-  money: money_, accounts, contacts, cheques, budgets, docs, reports, settings,
+  money: money_, accounts, contacts, orders, cheques, budgets, docs, reports, settings,
 };
 
 const NAV = [
@@ -31,6 +32,7 @@ const NAV = [
       { key: 'invoices', label: 'فاکتورها', icon: 'invoice' },
       { key: 'products', label: 'کالاها', icon: 'box' },
       { key: 'contacts', label: 'طرف حساب‌ها', icon: 'users' },
+      { key: 'orders', label: 'سفارش‌های سایت', icon: 'cart', badge: (state) => (state.orders || []).filter((o) => (o.status || 'جدید') === 'جدید').length },
     ],
   },
   {
