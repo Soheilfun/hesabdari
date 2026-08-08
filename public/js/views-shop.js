@@ -127,11 +127,13 @@ async function convertToInvoice(ctx, order) {
 
 /* ------------------------------- نمای اصلی ------------------------------- */
 
+let lastAutoSync = 0;
+
 export const orders = {
   title: '\u0633\u0641\u0627\u0631\u0634\u200c\u0647\u0627\u06cc \u0633\u0627\u06cc\u062a',
   subtitle: () => '\u0633\u0641\u0627\u0631\u0634\u200c\u0647\u0627\u06cc\u06cc \u06a9\u0647 \u0645\u0634\u062a\u0631\u06cc\u200c\u0647\u0627 \u0627\u0632 \u0635\u0641\u062d\u0647\u0654 \u0648\u06cc\u062a\u0631\u06cc\u0646 \u062b\u0628\u062a \u06a9\u0631\u062f\u0647\u200c\u0627\u0646\u062f',
   actions: () => `
-    <a class="btn" href="/shop.html" target="_blank" rel="noopener">\u062f\u06cc\u062f\u0646 \u0635\u0641\u062d\u0647\u0654 \u0641\u0631\u0648\u0634\u06af\u0627\u0647</a>
+    <button class="btn" type="button" data-open-shop>دیدن صفحهٔ فروشگاه</button>
     <button class="btn" data-refresh>به‌روزرسانی</button>
     <button class="btn btn-primary" data-copy-link>\u06a9\u067e\u06cc \u0644\u06cc\u0646\u06a9 \u0633\u0641\u0627\u0631\u0634</button>`,
 
@@ -205,9 +207,22 @@ export const orders = {
 
   mount(root, ctx) {
     // به‌محض باز شدن صفحه، یک همگام‌سازی فوری تا سفارش‌های تازه دیده شوند
-    ctx.store.sync();
+    // حداکثر یک بار در هر ۵ ثانیه؛ رندر دوباره نباید سیل درخواست بسازد
+    if (Date.now() - lastAutoSync > 5000) {
+      lastAutoSync = Date.now();
+      ctx.store.sync();
+    }
 
     root.addEventListener('click', async (e) => {
+      if (e.target.closest('[data-open-shop]')) {
+        // در اپ نصب‌شده، window.open ممکن است پنجره ندهد؛ آن‌وقت همین‌جا باز می‌کنیم
+        const link = `${location.origin}/shop.html`;
+        let win = null;
+        try { win = window.open(link, '_blank', 'noopener'); } catch { win = null; }
+        if (!win) location.href = link;
+        return undefined;
+      }
+
       if (e.target.closest('[data-refresh]')) {
         await ctx.store.sync();
         toast('فهرست به‌روز شد', 'green');

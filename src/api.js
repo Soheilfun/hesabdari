@@ -209,7 +209,7 @@ async function handleExport(env) {
   for (const row of results || []) {
     (grouped[row.type] ||= []).push(JSON.parse(row.data));
   }
-  return json({ exportedAt: Date.now(), version: 2, appVersion: '1.8.0-beta', data: grouped }, 200, {
+  return json({ exportedAt: Date.now(), version: 2, appVersion: '1.8.2-beta', data: grouped }, 200, {
     'content-disposition': 'attachment; filename="hesabyar-server-backup.json"',
   });
 }
@@ -342,7 +342,7 @@ async function handleShopOrder(request, env) {
     for (const line of lines) {
       const product = catalog.get(line.productId);
       if (!product) continue;
-      const updated = { ...product, stock: (Number(product.stock) || 0) - line.qty };
+      const updated = { ...product, stock: Math.max(0, (Number(product.stock) || 0) - line.qty) };
       statements.push(env.DB.prepare(
         `UPDATE records SET data = ?2, updated_at = ?3, rev = rev + 1
          WHERE id = ?1 AND type = 'product' AND deleted = 0`,
