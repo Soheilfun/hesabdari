@@ -211,6 +211,16 @@ export const INVOICE_KINDS = ['فروش', 'خرید', 'مرجوعی فروش', '
 export const CHEQUE_KINDS = ['دریافتی (از مشتری)', 'پرداختی (به تأمین‌کننده)'];
 export const CHEQUE_STATUS = ['در جریان', 'پاس شده', 'برگشتی', 'باطل شده'];
 
+/* دسته‌های ثبت خودکار فروش/خرید و تسویهٔ طرف حساب‌ها */
+export const CAT_SALE = 'فروش کالا';
+export const CAT_PURCHASE = 'خرید کالا';
+export const CAT_SALE_RETURN = 'برگشت از فروش';
+export const CAT_PURCHASE_RETURN = 'برگشت از خرید';
+export const CAT_COLLECT = 'وصول مطالبات';
+export const CAT_PAY_DEBT = 'پرداخت بدهی';
+if (!EXPENSE_CATS.includes(CAT_SALE_RETURN)) EXPENSE_CATS.splice(EXPENSE_CATS.length - 1, 0, CAT_SALE_RETURN, CAT_PAY_DEBT);
+if (!INCOME_CATS.includes(CAT_PURCHASE_RETURN)) INCOME_CATS.splice(INCOME_CATS.length - 1, 0, CAT_PURCHASE_RETURN, CAT_COLLECT);
+
 /* ========================= منطق دامنه حسابداری ========================= */
 
 // تخفیف هر ردیف فقط از همان ردیف کم می‌شود و ردیف هرگز منفی نمی‌شود (رفتار استاندارد فاکتور).
@@ -223,8 +233,9 @@ export const invoiceTax = (inv) =>
 export const invoiceTotal = (inv) =>
   Math.max(0, invoiceSubtotal(inv) - num(inv.discount)) + invoiceTax(inv);
 
+// تراکنش «تعهدی» (ثبت خودکار فروش/خرید نسیه) پرداخت محسوب نمی‌شود
 export const invoicePaid = (inv, txns) =>
-  sum(txns.filter((t) => t.invoiceId === inv.id), (t) => t.amount) + num(inv.openingPaid);
+  sum(txns.filter((t) => t.invoiceId === inv.id && !t.accrual), (t) => t.amount) + num(inv.openingPaid);
 
 export const invoiceBalance = (inv, txns) => Math.max(0, invoiceTotal(inv) - invoicePaid(inv, txns));
 
@@ -281,8 +292,11 @@ export const payable = (state) => sum(
 );
 
 export const monthTxns = (state, key) => state.txns.filter((t) => monthKey(t.date) === key);
-export const monthIncome = (state, key) => sum(monthTxns(state, key).filter((t) => t.type === 'درآمد'), (t) => t.amount);
-export const monthExpense = (state, key) => sum(monthTxns(state, key).filter((t) => t.type === 'هزینه'), (t) => t.amount);
+// «تسویه» جابه‌جایی طلب/بدهی است، نه درآمد یا هزینهٔ تازه؛ پس در جمع ماه شمرده نمی‌شود
+export const isLedgerIncome = (t) => t.type === 'درآمد' && !t.settle;
+export const isLedgerExpense = (t) => t.type === 'هزینه' && !t.settle;
+export const monthIncome = (state, key) => sum(monthTxns(state, key).filter(isLedgerIncome), (t) => t.amount);
+export const monthExpense = (state, key) => sum(monthTxns(state, key).filter(isLedgerExpense), (t) => t.amount);
 
 export const monthSalesProfit = (state, key) => sum(
   state.invoices.filter((i) => i.kind === 'فروش' && monthKey(i.date) === key),
@@ -296,3 +310,71 @@ export const chequesDueSoon = (state, days = 7) => {
   const limit = isoPlusDays(days);
   return openCheques(state).filter((c) => c.due && c.due <= limit);
 };
+
+/* ============ روزها، فروش روز و پروندهٔ طرف حساب (نسخه ۱.۹) ============ */
+
+/** تعداد روزهای یک ماه شمسی (اسفند ۲۹ یا ۳۰ روز) */
+export function jalaliMonthLength(jy, jm) {
+  if (jm <= 6) return 31;
+  if (jm <= 11) return 30;
+  const [gy, gm, gd] = jalaliToGregorian(jy, 12, 30);
+  return gregorianToJalali(gy, gm, gd)[1] === 12 ? 30 : 29;
+}
+
+/** روزهای یک ماه شمسی به شکل [{ day, iso }] */
+export function monthDays(key) {
+  const [jy, jm] = String(key).split('-').map(Number);
+  if (!Number.isFinite(jy) || !Number.isFinite(jm)) return [];
+  const out = [];
+  for (let d = 1; d <= jalaliMonthLength(jy, jm); d += 1) {
+    const [gy, gm, gd] = jalaliToGregorian(jy, jm, d);
+    out.push({ day: d, iso: `${gy}-${pad(gm)}-${pad(gd)}` });
+  }
+  return out;
+}
+
+export const dayTxns = (state, iso) => state.txns.filter((t) => t.date === iso);
+export const dayIncome = (state, iso) => sum(dayTxns(state, iso).filter(isLedgerIncome), (t) => t.amount);
+export const dayExpense = (state, iso) => sum(dayTxns(state, iso).filter(isLedgerExpense), (t) => t.amount);
+
+const SALES_SIGN = { 'فروش': 1, 'مرجوعی فروش': -1 };
+
+/** خلاصهٔ فروش یک روز: مبلغ، تعداد فاکتور، تعداد قلم، وصولی نقدی و سود */
+export function daySales(state, iso) {
+  const list = state.invoices.filter((i) => i.date === iso && SALES_SIGN[i.kind]);
+  const cash = state.txns.filter((t) => t.date === iso && t.type === 'درآمد' && !t.accrual && !t.settle);
+  return {
+    count: list.filter((i) => i.kind === 'فروش').length,
+    returns: list.filter((i) => i.kind === 'مرجوعی فروش').length,
+    total: sum(list, (i) => SALES_SIGN[i.kind] * invoiceTotal(i)),
+    profit: sum(list, (i) => SALES_SIGN[i.kind] * invoiceProfit(i, state.products)),
+    units: list.reduce((acc, i) => acc + SALES_SIGN[i.kind] * sum(i.items || [], (it) => num(it.qty)), 0),
+    cash: sum(cash, (t) => t.amount),
+  };
+}
+
+/* فروش = طلب ما، خرید = بدهی ما؛ مرجوعی‌ها خلاف جهت فاکتور اصلی */
+export const CONTACT_BALANCE_SIGN = { 'فروش': 1, 'خرید': -1, 'مرجوعی فروش': -1, 'مرجوعی خرید': 1 };
+
+export const contactInvoices = (state, id) => state.invoices.filter((i) => i.contactId === id);
+export const contactTxns = (state, id) => state.txns.filter((t) => t.contactId === id);
+export const contactCheques = (state, id) => (state.cheques || []).filter((c) => c.contactId === id);
+
+/** فاکتورهای بازِ یک طرف حساب در یک جهت (۱ = او بدهکار است) از قدیمی به جدید */
+export const contactOpenInvoices = (state, id, dir) => contactInvoices(state, id)
+  .filter((i) => CONTACT_BALANCE_SIGN[i.kind] === dir && invoiceBalance(i, state.txns) > 0)
+  .sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+
+/** مانده حساب طرف حساب؛ مثبت = او به ما بدهکار است */
+export function contactBalance(state, id) {
+  const fromInvoices = sum(
+    contactInvoices(state, id).filter((i) => CONTACT_BALANCE_SIGN[i.kind]),
+    (i) => CONTACT_BALANCE_SIGN[i.kind] * invoiceBalance(i, state.txns),
+  );
+  // دریافت/پرداخت علی‌الحساب که به فاکتور خاصی وصل نیست
+  const advances = sum(
+    contactTxns(state, id).filter((t) => t.settle && !t.invoiceId),
+    (t) => (t.type === 'درآمد' ? -num(t.amount) : num(t.amount)),
+  );
+  return fromInvoices + advances;
+}

@@ -10,6 +10,8 @@ import {
   isoPlusDays, isoToJalali, lastMonthKeys, money, moneyShort, monthExpense, monthIncome,
   monthKey, monthKeyLabel, monthSalesProfit, monthTxns, num, openCheques, payable,
   normText, receivable, stockValue, todayIso, toman, uniq,
+  CAT_COLLECT, CAT_PAY_DEBT, contactBalance, contactCheques, contactInvoices,
+  contactOpenInvoices, contactTxns, invoiceStatus, invoiceTotal, sum,
 } from './core.js';
 import {
   $, banner, card, chip, confirmDialog, dateField, download, empty, icon,
@@ -62,6 +64,7 @@ function txnForm(ctx, txn, preset = {}) {
         id: t.id, date: values.date || todayIso(), type: values.type, cat: values.cat,
         amount: num(values.amount), accountId: values.accountId, toAccountId: values.toAccountId,
         contactId: values.contactId, method: values.method, note: values.note, invoiceId: t.invoiceId || '',
+        accrual: !!t.accrual, settle: !!t.settle,
       });
       toast('تراکنش ذخیره شد', 'green');
       ctx.refresh();
@@ -89,10 +92,10 @@ export const money_ = {
     const rows = list.map((t) => ({
       _id: t.id,
       date: isoToJalali(t.date),
-      type: chip(t.type, t.type === 'درآمد' ? 'green' : t.type === 'هزینه' ? 'red' : 'blue'),
+      type: `${chip(t.type, t.type === 'درآمد' ? 'green' : t.type === 'هزینه' ? 'red' : 'blue')}${t.accrual ? ` ${chip('نسیه', 'orange')}` : ''}${t.settle ? ` ${chip('تسویه', 'blue')}` : ''}`,
       cat: esc(t.cat || '—'),
       party: esc(contactName(state, t.contactId)),
-      account: esc(accountName(state, t.accountId) + (t.toAccountId ? ` ← ${accountName(state, t.toAccountId)}` : '')),
+      account: t.accrual ? '<span class="muted">—</span>' : esc(accountName(state, t.accountId) + (t.toAccountId ? ` ← ${accountName(state, t.toAccountId)}` : '')),
       amount: money(t.amount),
       actions: rowActions([
         { icon: icon('edit'), title: 'ویرایش', attrs: `data-edit="${t.id}"` },
@@ -102,12 +105,16 @@ export const money_ = {
 
     const income = monthIncome(state, key);
     const expense = monthExpense(state, key);
+    const salesIncome = sum(monthTxns(state, key).filter((t) => t.type === 'درآمد' && !t.settle && t.cat === 'فروش کالا'), (t) => t.amount);
+    const creditPart = sum(monthTxns(state, key).filter((t) => t.accrual && t.type === 'درآمد'), (t) => t.amount);
 
     return `
-      <div class="grid cols-3" style="margin-bottom:var(--sp-4)">
+      ${banner('فروش کالاها خودکار در همین دفتر ثبت می‌شود؛ فروش نسیه با برچسب «نسیه» می‌آید و روی موجودی صندوق اثر ندارد. وقتی مشتری تسویه کند، با برچسب «تسویه» ثبت می‌شود و دوباره درآمد حساب نمی‌شود.', 'blue', icon('info'))}
+      <div class="grid cols-4" style="margin:var(--sp-4) 0">
         ${stat({ label: `درآمد ${monthKeyLabel(key)}`, value: moneyShort(income), unit: 'تومان', tone: 'green' })}
         ${stat({ label: `هزینه ${monthKeyLabel(key)}`, value: moneyShort(expense), unit: 'تومان', tone: 'red' })}
         ${stat({ label: 'خالص ماه', value: moneyShort(income - expense), unit: 'تومان', tone: income - expense >= 0 ? 'blue' : 'orange' })}
+        ${stat({ label: 'فروش کالا در این ماه', value: moneyShort(salesIncome), unit: 'تومان', tone: 'blue', hint: creditPart ? `شامل ${money(creditPart)} نسیه` : '' })}
       </div>
       <div class="field" style="max-width:260px">
         <label class="lbl" for="month-pick">ماه</label>
@@ -243,7 +250,179 @@ function contactForm(ctx, contact) {
   });
 }
 
+const settleAccounts = (state) => state.accounts.map((a) => ({ v: a.id, t: a.name }));
+
+/** تسویه یا پرداخت با یک طرف حساب؛ مبلغ به قدیمی‌ترین فاکتورهای باز تخصیص می‌یابد */
+function contactSettleForm(ctx, contact) {
+  if (!contact) return;
+  const { state, store } = ctx;
+  const balance = contactBalance(state, contact.id);
+  const owesUs = balance > 0;
+  const open = contactOpenInvoices(state, contact.id, owesUs ? 1 : -1);
+
+  openDrawer({
+    title: `تسویه با ${contact.name}`,
+    submitLabel: 'ثبت تسویه',
+    body: `
+      ${banner(balance === 0
+        ? 'حساب این شخص تسویه است؛ مبلغ ثبت‌شده به عنوان علی‌الحساب ذخیره می‌شود.'
+        : `مانده حساب: <b>${money(Math.abs(balance))} تومان</b> — ${owesUs ? 'او به ما بدهکار است' : 'ما به او بدهکار هستیم'}`,
+        owesUs ? 'green' : 'orange', icon('wallet'))}
+      <div class="form-grid" style="margin-top:var(--sp-3)">
+        ${select('dir', 'نوع عملیات', ['دریافت از این شخص', 'پرداخت به این شخص'], owesUs ? 'دریافت از این شخص' : 'پرداخت به این شخص', { span: true })}
+        ${numberField('amount', 'مبلغ (تومان)', Math.abs(balance) || '')}
+        ${dateField('date', 'تاریخ', todayIso())}
+        ${select('accountId', 'صندوق / حساب', settleAccounts(state), state.accounts[0]?.id || '', { blank: '—' })}
+        ${select('method', 'روش', PAY_METHODS.filter((m) => m !== 'اعتباری'), 'نقد')}
+        ${textarea('note', 'توضیح', '')}
+      </div>
+      ${open.length ? `<h4 style="margin:var(--sp-4) 0 var(--sp-2)">فاکتورهای باز</h4>${table([
+        { key: 'no', label: 'فاکتور' },
+        { key: 'date', label: 'تاریخ' },
+        { key: 'total', label: 'مبلغ', num: true },
+        { key: 'balance', label: 'مانده', num: true },
+      ], open.map((i) => ({
+        no: `<span class="nums">#${faNum(i.no || '')}</span> ${esc(i.kind)}`,
+        date: isoToJalali(i.date),
+        total: money(invoiceTotal(i)),
+        balance: `<b class="nums">${money(invoiceBalance(i, state.txns))}</b>`,
+      })))}<p class="small muted">مبلغ واردشده از قدیمی‌ترین فاکتور باز به بعد تسویه می‌شود و باقیمانده علی‌الحساب ثبت می‌شود.</p>` : ''}`,
+
+    onSubmit(values) {
+      const amount = num(values.amount);
+      if (amount <= 0) { toast('مبلغ را وارد کنید.', 'red'); return false; }
+      const receive = values.dir === 'دریافت از این شخص';
+      const date = values.date || todayIso();
+      const targets = contactOpenInvoices(state, contact.id, receive ? 1 : -1);
+      let left = amount;
+      let touched = 0;
+      targets.forEach((inv) => {
+        if (left <= 0) return;
+        const part = Math.min(left, invoiceBalance(inv, state.txns));
+        if (part <= 0) return;
+        left -= part;
+        touched += 1;
+        store.put('txn', {
+          date,
+          type: receive ? 'درآمد' : 'هزینه',
+          cat: receive ? CAT_COLLECT : CAT_PAY_DEBT,
+          amount: part, accountId: values.accountId, contactId: contact.id,
+          method: values.method || 'نقد',
+          note: `تسویه فاکتور #${inv.no || ''}${values.note ? ` — ${values.note}` : ''}`,
+          invoiceId: inv.id, settle: true,
+        });
+      });
+      if (left > 0) {
+        store.put('txn', {
+          date,
+          type: receive ? 'درآمد' : 'هزینه',
+          cat: receive ? CAT_COLLECT : CAT_PAY_DEBT,
+          amount: left, accountId: values.accountId, contactId: contact.id,
+          method: values.method || 'نقد',
+          note: `${receive ? 'دریافت' : 'پرداخت'} علی‌الحساب${values.note ? ` — ${values.note}` : ''}`,
+          invoiceId: '', settle: true,
+        });
+      }
+      toast(touched ? `${faNum(touched)} فاکتور تسویه شد` : 'مبلغ علی‌الحساب ثبت شد', 'green');
+      ctx.refresh();
+      return true;
+    },
+  });
+}
+
+/** پروندهٔ کامل یک طرف حساب: فاکتورها، پرداخت‌ها، تراکنش‌ها و چک‌ها */
+function contactSheet(ctx, contact) {
+  if (!contact) return;
+  const { state } = ctx;
+  const balance = contactBalance(state, contact.id);
+  const invs = contactInvoices(state, contact.id).slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  const txns = contactTxns(state, contact.id).slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  const chqs = contactCheques(state, contact.id);
+  const bought = sum(invs.filter((i) => i.kind === 'فروش'), (i) => invoiceTotal(i));
+  const received = sum(txns.filter((t) => t.type === 'درآمد' && !t.accrual), (t) => t.amount);
+  const paidOut = sum(txns.filter((t) => t.type === 'هزینه' && !t.accrual), (t) => t.amount);
+
+  openDrawer({
+    title: contact.name,
+    wide: true,
+    extraActions: '<button type="button" class="btn btn-primary btn-sm" data-sheet-settle>تسویه / پرداخت</button><button type="button" class="btn btn-sm" data-sheet-edit>ویرایش اطلاعات</button>',
+    body: `
+      <div class="grid cols-4">
+        ${stat({
+          label: 'مانده حساب', value: money(Math.abs(balance)), unit: 'تومان',
+          tone: balance > 0 ? 'green' : (balance < 0 ? 'red' : ''),
+          hint: balance === 0 ? 'تسویه' : (balance > 0 ? 'او به ما بدهکار است' : 'ما به او بدهکاریم'),
+        })}
+        ${stat({ label: 'جمع فاکتورهای فروش', value: moneyShort(bought), unit: 'تومان', tone: 'blue' })}
+        ${stat({ label: 'جمع دریافت از او', value: moneyShort(received), unit: 'تومان', tone: 'green' })}
+        ${stat({ label: 'جمع پرداخت به او', value: moneyShort(paidOut), unit: 'تومان', tone: 'orange' })}
+      </div>
+      <p class="small muted" style="margin-top:var(--sp-3)">${esc(contact.role || '')}${contact.phone ? ` — تلفن: ${esc(contact.phone)}` : ''}${contact.address ? ` — ${esc(contact.address)}` : ''}${contact.nid ? ` — کد: ${esc(contact.nid)}` : ''}</p>
+
+      <h4 style="margin:var(--sp-4) 0 var(--sp-2)">فاکتورها</h4>
+      ${table([
+        { key: 'no', label: 'شماره' },
+        { key: 'kind', label: 'نوع' },
+        { key: 'date', label: 'تاریخ' },
+        { key: 'total', label: 'مبلغ', num: true },
+        { key: 'balance', label: 'مانده', num: true },
+        { key: 'status', label: 'وضعیت' },
+      ], invs.map((i) => {
+        const st = invoiceStatus(i, state.txns);
+        return {
+          no: `<span class="nums">#${faNum(i.no || '')}</span>`,
+          kind: esc(i.kind),
+          date: isoToJalali(i.date),
+          total: money(invoiceTotal(i)),
+          balance: money(invoiceBalance(i, state.txns)),
+          status: chip(st.label, st.tone === 'neutral' ? '' : st.tone),
+        };
+      }), { emptyState: empty('فاکتوری برای این شخص ثبت نشده', '', icon('invoice', 28)) })}
+
+      <h4 style="margin:var(--sp-4) 0 var(--sp-2)">پرداخت‌ها و تراکنش‌ها</h4>
+      ${table([
+        { key: 'date', label: 'تاریخ' },
+        { key: 'type', label: 'نوع' },
+        { key: 'cat', label: 'دسته' },
+        { key: 'method', label: 'روش' },
+        { key: 'amount', label: 'مبلغ', num: true },
+        { key: 'note', label: 'شرح' },
+      ], txns.map((t) => ({
+        date: isoToJalali(t.date),
+        type: chip(t.type, t.type === 'درآمد' ? 'green' : (t.type === 'هزینه' ? 'red' : 'blue')),
+        cat: esc(t.cat || '—'),
+        method: `${esc(t.method || '—')}${t.accrual ? ` ${chip('نسیه', 'orange')}` : ''}${t.settle ? ` ${chip('تسویه', 'blue')}` : ''}`,
+        amount: money(t.amount),
+        note: esc(t.note || ''),
+      })), { emptyState: empty('تراکنشی برای این شخص ثبت نشده', '', icon('swap', 28)) })}
+
+      ${chqs.length ? `<h4 style="margin:var(--sp-4) 0 var(--sp-2)">چک‌ها</h4>${table([
+        { key: 'no', label: 'شماره' },
+        { key: 'bank', label: 'بانک' },
+        { key: 'due', label: 'سررسید' },
+        { key: 'amount', label: 'مبلغ', num: true },
+        { key: 'status', label: 'وضعیت' },
+      ], chqs.map((c) => ({
+        no: `<span class="nums">${esc(c.no || '—')}</span>`,
+        bank: esc(c.bank || '—'),
+        due: isoToJalali(c.due),
+        amount: money(c.amount),
+        status: chip(c.status, c.status === 'پاس شده' ? 'green' : (c.status === 'برگشتی' ? 'red' : 'blue')),
+      })))}` : ''}`,
+
+    onMount(form, api2) {
+      const drawer = form.closest('.drawer');
+      if (!drawer) return;
+      drawer.addEventListener('click', (e) => {
+        if (e.target.closest('[data-sheet-settle]')) { api2.close(); contactSettleForm(ctx, contact); }
+        if (e.target.closest('[data-sheet-edit]')) { api2.close(); contactForm(ctx, contact); }
+      });
+    },
+  });
+}
+
 export const contacts = {
+
   title: 'مشتریان و تأمین‌کنندگان',
   subtitle: () => 'دفترچه طرف حساب‌ها با مانده حساب',
   actions: () => '<button class="btn btn-primary" data-new>طرف حساب جدید</button>',
@@ -253,21 +432,20 @@ export const contacts = {
     const list = state.contacts.filter((c) => !query
       || normText(`${c.name || ''} ${c.phone || ''} ${c.role || ''}`).includes(normText(query)));
 
-    // فروش = طلب، خرید = بدهی، مرجوعی‌ها خلاف جهت فاکتور اصلی
-    const BALANCE_SIGN = { 'فروش': 1, 'خرید': -1, 'مرجوعی فروش': -1, 'مرجوعی خرید': 1 };
-    const balanceOf = (id) => state.invoices
-      .filter((i) => i.contactId === id)
-      .reduce((acc, i) => acc + (BALANCE_SIGN[i.kind] || 0) * invoiceBalance(i, state.txns), 0);
+    // مانده = فاکتورهای باز + دریافت/پرداخت علی‌الحساب (مثبت: او به ما بدهکار است)
+    const balanceOf = (id) => contactBalance(state, id);
 
     const rows = list.map((c) => {
       const balance = balanceOf(c.id);
       return {
         _id: c.id,
-        name: `<b>${esc(c.name)}</b>${c.address ? `<div class="tiny muted">${esc(c.address)}</div>` : ''}`,
+        name: `<button type="button" class="link-btn" data-view="${c.id}">${esc(c.name)}</button>${c.address ? `<div class="tiny muted">${esc(c.address)}</div>` : ''}`,
         role: chip(c.role, c.role === 'مشتری' ? 'green' : c.role === 'تأمین‌کننده' ? 'blue' : ''),
         phone: `<span class="nums">${esc(c.phone || '—')}</span>`,
         balance: balance === 0 ? chip('تسویه', '') : `<b class="nums">${money(Math.abs(balance))}</b> ${balance > 0 ? chip('بدهکار', 'green') : chip('بستانکار', 'red')}`,
         actions: rowActions([
+          { icon: icon('doc'), title: 'پروندهٔ حساب', attrs: `data-view="${c.id}"` },
+          { icon: icon('wallet'), title: 'تسویه / پرداخت', attrs: `data-settle="${c.id}"` },
           { icon: icon('edit'), title: 'ویرایش', attrs: `data-edit="${c.id}"` },
           { icon: icon('trash'), title: 'حذف', attrs: `data-del="${c.id}"`, danger: true },
         ]),
@@ -281,7 +459,7 @@ export const contacts = {
       ${stat({ label: 'جمع بدهکاران (طلب ما)', value: moneyShort(totalDebtor), unit: 'تومان', tone: 'green' })}
       ${stat({ label: 'جمع بستانکاران (بدهی ما)', value: moneyShort(totalCreditor), unit: 'تومان', tone: 'red' })}
       ${stat({ label: 'تعداد طرف حساب', value: faNum(list.length) })}
-    </div>` + card({
+    </div>` + banner('روی نام هر شخص بزنید تا پروندهٔ پرداخت‌ها و تراکنش‌هایش باز شود؛ با دکمهٔ کیف پول می‌توانید با او تسویه کنید یا پرداختی داشته باشید.', 'blue', icon('info')) + '<div style="height:var(--sp-4)"></div>' + card({
       body: table([
         { key: 'name', label: 'نام' },
         { key: 'role', label: 'نوع' },
@@ -296,6 +474,10 @@ export const contacts = {
   mount(root, ctx) {
     root.addEventListener('click', async (e) => {
       if (e.target.closest('[data-new]')) return contactForm(ctx);
+      const view = e.target.closest('[data-view]');
+      if (view) return contactSheet(ctx, ctx.state.contacts.find((c) => c.id === view.dataset.view));
+      const settle = e.target.closest('[data-settle]');
+      if (settle) return contactSettleForm(ctx, ctx.state.contacts.find((c) => c.id === settle.dataset.settle));
       const edit = e.target.closest('[data-edit]');
       if (edit) return contactForm(ctx, ctx.state.contacts.find((c) => c.id === edit.dataset.edit));
       const del = e.target.closest('[data-del]');
@@ -727,11 +909,14 @@ export const settings = {
             <li>تاریخ‌ها شمسی و به شکل ۱۴۰۵/۰۵/۰۶ وارد می‌شوند.</li>
             <li>فاکتور خرید، کالای جدید را خودکار می‌سازد و موجودی را بالا می‌برد.</li>
             <li>اگر اینترنت قطع شود، ثبت‌ها در صف می‌مانند و پس از اتصال خودکار ارسال می‌شوند.</li>
+            <li>هر فروش و خرید خودکار در تب «درآمد و هزینه» ثبت می‌شود؛ نسیه با برچسب «نسیه».</li>
+            <li>در «طرف حساب‌ها» روی نام هر شخص بزنید تا پرونده و دکمهٔ تسویهٔ او باز شود.</li>
+            <li>پیش‌نویس «فروش سریع» تا ثبت نهایی روی همین دستگاه می‌ماند.</li>
           </ul>
           <div class="cluster" style="margin-top:var(--sp-4)">
-            <span class="chip">نسخه ۱.۶ بتا</span>
+            <span class="chip">نسخه ۱.۹ بتا</span>
           </div>
-          <p class="small muted" style="margin-top:var(--sp-2)">حساب‌یار ۱.۶ بتا — داده روی سرور، کار آفلاین، دستیار هوشمند.</p>`,
+          <p class="small muted" style="margin-top:var(--sp-2)">حساب‌یار ۱.۹ بتا — دفتر یکپارچهٔ فروش، تسویهٔ طرف حساب‌ها و فروشگاه اینترنتی.</p>`,
         })}
       </div>`;
   },

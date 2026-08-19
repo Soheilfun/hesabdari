@@ -9,6 +9,7 @@ import {
 import {
   card, chip, confirmDialog, empty, icon, openDrawer, rowActions, stat, table, tabs, toast,
 } from './ui.js';
+import { recordSaleLedger } from './views-sales.js';
 
 export const ORDER_STATUS = ['\u062c\u062f\u06cc\u062f', '\u062a\u0645\u0627\u0633 \u06af\u0631\u0641\u062a\u0647 \u0634\u062f', '\u062a\u0628\u062f\u06cc\u0644 \u0628\u0647 \u0641\u0627\u06a9\u062a\u0648\u0631', '\u0644\u063a\u0648 \u0634\u062f\u0647'];
 
@@ -121,6 +122,8 @@ async function convertToInvoice(ctx, order) {
   }
 
   store.put('order', { ...order, status: '\u062a\u0628\u062f\u06cc\u0644 \u0628\u0647 \u0641\u0627\u06a9\u062a\u0648\u0631', invoiceId: invoice.id });
+  // سفارش سایت هم خودکار در دفتر درآمد و هزینه ثبت می‌شود
+  recordSaleLedger(store, invoice, { contactId: contact.id, method: order.payMethod || 'اعتباری' });
   toast(`\u0641\u0627\u06a9\u062a\u0648\u0631 #${faNum(invoice.no)} \u0633\u0627\u062e\u062a\u0647 \u0634\u062f`, 'green');
   ctx.go('invoices', { id: invoice.id });
 }

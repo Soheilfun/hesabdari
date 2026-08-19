@@ -9,6 +9,8 @@ import {
   isoToJalali, jalaliLong, lastMonthKeys, lowStock, money, moneyShort, monthExpense,
   monthIncome, monthKey, monthKeyLabel, monthSalesProfit, num, payable, receivable,
   enDigits, normText, roundTo, stockValue, todayIso, toman, uniq,
+  CAT_PURCHASE, CAT_PURCHASE_RETURN, CAT_SALE, CAT_SALE_RETURN,
+  dayExpense, dayIncome, daySales, debounce, jalaliToIso, monthDays, sum,
 } from './core.js';
 import {
   $, $$, banner, card, chip, confirmDialog, dateField, download, empty, icon,
@@ -33,7 +35,11 @@ export const dashboard = {
   render(ctx) {
     const { state } = ctx;
     const key = currentMonthKey();
-    const months = lastMonthKeys(6);
+    const today = todayIso();
+    const allDays = monthDays(key);
+    const passed = allDays.filter((d) => d.iso <= today);
+    const chartDays = passed.length ? passed : allDays;
+    const sales = daySales(state, today);
 
     const low = lowStock(state);
     const soon = chequesDueSoon(state, 7);
@@ -48,21 +54,23 @@ export const dashboard = {
         '<button class="btn btn-sm" data-go="invoices">پیگیری</button>') : '',
     ].filter(Boolean).join('');
 
-    const maxBar = Math.max(1, ...months.flatMap((m) => [monthIncome(state, m), monthExpense(state, m)]));
-    const chart = `<div class="chart" role="img" aria-label="نمودار درآمد و هزینه شش ماه اخیر">
-      ${months.map((m) => {
-        const inc = monthIncome(state, m);
-        const exp = monthExpense(state, m);
+    const maxBar = Math.max(1, ...chartDays.flatMap((d) => [dayIncome(state, d.iso), dayExpense(state, d.iso)]));
+    const chart = `<div class="chart" role="img" aria-label="نمودار روزانه درآمد و هزینه ماه جاری">
+      ${chartDays.map((d) => {
+        const inc = dayIncome(state, d.iso);
+        const exp = dayExpense(state, d.iso);
         return `<div class="col">
           <div class="pair">
-            <span class="b income" style="height:${(inc / maxBar) * 100}%" title="درآمد ${money(inc)}"></span>
-            <span class="b expense" style="height:${(exp / maxBar) * 100}%" title="هزینه ${money(exp)}"></span>
+            <span class="b income" style="height:${(inc / maxBar) * 100}%" title="${faNum(d.day)} — درآمد ${money(inc)}"></span>
+            <span class="b expense" style="height:${(exp / maxBar) * 100}%" title="${faNum(d.day)} — هزینه ${money(exp)}"></span>
           </div>
-          <span class="cl">${esc(monthKeyLabel(m).split(' ')[0])}</span>
+          <span class="cl">${d.day === 1 || d.day % 5 === 0 || d.iso === today ? faNum(d.day) : ''}</span>
         </div>`;
       }).join('')}
     </div>
-    <div class="cluster" style="margin-top:var(--sp-3)">${chip('درآمد', 'green')}${chip('هزینه', 'red')}</div>`;
+    <div class="cluster" style="margin-top:var(--sp-3)">${chip('درآمد', 'green')}${chip('هزینه', 'red')}
+      <span class="small muted">جمع ماه: درآمد ${money(monthIncome(state, key))} — هزینه ${money(monthExpense(state, key))}</span>
+    </div>`;
 
     const meters = state.accounts.length ? `<div class="meters">${(() => {
       const total = Math.max(1, ...state.accounts.map((a) => Math.abs(ctxBalance(a.id, state))));
@@ -92,6 +100,18 @@ export const dashboard = {
 
     return `
       ${alerts}
+      <div style="margin-top:var(--sp-4)">
+        ${card({
+          title: `فروش امروز — ${jalaliLong(today)}`,
+          actions: '<button class="btn btn-sm btn-primary" data-quick-sale>فروش سریع</button><button class="btn btn-sm" data-go="invoices">فاکتورها</button>',
+          body: `<div class="grid cols-4">
+            ${stat({ label: 'مبلغ فروش امروز', value: money(sales.total), unit: 'تومان', tone: 'green', icon: icon('invoice') })}
+            ${stat({ label: 'تعداد فاکتور امروز', value: faNum(sales.count), hint: sales.returns ? `${faNum(sales.returns)} مرجوعی امروز` : `${faNum(sales.units)} قلم کالا` })}
+            ${stat({ label: 'وصولی نقدی امروز', value: money(sales.cash), unit: 'تومان', tone: 'blue', icon: icon('wallet') })}
+            ${stat({ label: 'سود امروز', value: money(sales.profit), unit: 'تومان', tone: 'orange', icon: icon('report') })}
+          </div>`,
+        })}
+      </div>
       <div class="grid cols-4" style="margin:var(--sp-4) 0">
         ${stat({ label: `فروش ${monthKeyLabel(key)}`, value: moneyShort(monthIncome(state, key)), unit: 'تومان', tone: 'green', icon: icon('up') })}
         ${stat({ label: `هزینه ${monthKeyLabel(key)}`, value: moneyShort(monthExpense(state, key)), unit: 'تومان', tone: 'red', icon: icon('down') })}
@@ -99,7 +119,7 @@ export const dashboard = {
         ${stat({ label: 'سود ناخالص ماه', value: moneyShort(monthSalesProfit(state, key)), unit: 'تومان', tone: 'orange', icon: icon('report') })}
       </div>
       <div class="grid cols-sidebar">
-        ${card({ title: 'درآمد و هزینه شش ماه اخیر', body: chart })}
+        ${card({ title: `درآمد و هزینه ${monthKeyLabel(key)} (روزانه)`, body: chart })}
         ${card({ title: 'مانده حساب‌ها', body: meters })}
       </div>
       <div class="grid cols-3" style="margin-top:var(--sp-4)">
@@ -175,7 +195,119 @@ function readItems(form, state, keep = []) {
   }).filter((it) => it.desc && it.qty > 0);
 }
 
-function openInvoiceForm(ctx, invoice) {
+/* اثر هر نوع فاکتور روی موجودی انبار (factor = -1 برای برگشت اثر) */
+const STOCK_SIGN = { 'فروش': -1, 'مرجوعی فروش': 1, 'خرید': 1, 'مرجوعی خرید': -1 };
+
+function findProduct(state, item) {
+  return state.products.find((p) => p.id === item.productId)
+    || state.products.find((p) => normText(p.name) === normText(item.desc));
+}
+
+/** اعمال اثر ردیف‌های فاکتور روی موجودی؛ خروجی = تعداد ردیف‌های پیدا‌نشده */
+function applyStockChange(store, state, kind, items, factor = 1) {
+  const sign = (STOCK_SIGN[kind] || 0) * factor;
+  if (!sign) return 0;
+  let missing = 0;
+  (items || []).forEach((it) => {
+    const product = findProduct(state, it);
+    if (product) store.put('product', { ...product, stock: num(product.stock) + sign * num(it.qty) });
+    else missing += 1;
+  });
+  return missing;
+}
+
+/** برچسب فاکتور/سفارش مبنای مرجوعی */
+function refLabel(state, key) {
+  const [type, id] = String(key).split(':');
+  if (type === 'order') {
+    const order = (state.orders || []).find((o) => o.id === id);
+    return `مرجوعی از سفارش ${order?.no || 'سایت'}`;
+  }
+  const src = state.invoices.find((i) => i.id === id);
+  return `مرجوعی از فاکتور #${src?.no || ''}`;
+}
+
+/** فیلدهای وابسته به روش پرداخت (مشترک بین فاکتور و فروش سریع) */
+function payFieldsHtml(state, method, contactId) {
+  const all = accountOptions(state);
+  const pick = (arr) => (arr.length ? arr : all);
+  const cash = pick(state.accounts.filter((a) => a.type === 'صندوق مغازه').map((a) => ({ v: a.id, t: a.name })));
+  const bank = pick(state.accounts.filter((a) => a.type !== 'صندوق مغازه').map((a) => ({ v: a.id, t: a.name })));
+  if (method === 'نقد') return select('payAccountId', 'ورود به صندوق', cash, cash[0]?.v || '', { blank: '—' });
+  if (method === 'کارتخوان') {
+    return select('payAccountId', 'حساب مقصد کارتخوان', bank, bank[0]?.v || '', { blank: '—' })
+      + text('posName', 'کارتخوان', '', { placeholder: 'مثلاً کارتخوان ملت — پیشخوان' });
+  }
+  if (method === 'کارت به کارت' || method === 'انتقال بانکی') {
+    return select('payAccountId', 'واریز به حساب', bank, bank[0]?.v || '', { blank: '—' })
+      + text('payRef', 'شماره پیگیری / چهار رقم آخر کارت', '');
+  }
+  if (method === 'چک') {
+    return text('chequeNo', 'شماره چک', '') + text('chequeBank', 'بانک', '')
+      + dateField('chequeDue', 'تاریخ سررسید', isoPlusDays(30));
+  }
+  if (method === 'اعتباری') {
+    return select('creditContactId', 'طرف حساب اعتباری', contactOptions(state), contactId || '', {
+      blank: '— از لیست طرف حساب‌ها انتخاب کنید —', span: true,
+      hint: 'اگر در لیست نیست، نام و تلفن خریدار را بنویسید تا خودکار ساخته شود',
+    })
+      + text('buyerName', 'یا نام خریدار جدید', '')
+      + text('buyerPhone', 'شماره تماس', '');
+  }
+  return '';
+}
+
+/** اتصال پنل پرداخت به فرم؛ خروجی = تابع رندر دوباره */
+function bindPayPanel(form, state, onChange) {
+  const box = $('#pay-extra', form);
+  const methodEl = $('[name=payMethod]', form);
+  const contactEl = $('[name=contactId]', form);
+  if (!box || !methodEl) return () => {};
+  const render = () => {
+    box.innerHTML = payFieldsHtml(state, methodEl.value, contactEl?.value || '');
+    const credit = $('[name=creditContactId]', box);
+    if (credit && contactEl) {
+      credit.addEventListener('change', () => { contactEl.value = credit.value; });
+    }
+    const amountField = $('[name=payAmount]', form)?.closest('.field');
+    if (amountField) amountField.style.display = methodEl.value === 'اعتباری' ? 'none' : '';
+    if (onChange) onChange();
+  };
+  methodEl.addEventListener('change', render);
+  if (contactEl) contactEl.addEventListener('change', render);
+  render();
+  return render;
+}
+
+/** ثبت خودکار فروش/خرید در دفتر درآمد و هزینه (بخش نسیه، بدون اثر روی صندوق) */
+function ledgerEntry(store, invoice, { amount, contactId, method, date }) {
+  const cat = {
+    'فروش': CAT_SALE, 'خرید': CAT_PURCHASE,
+    'مرجوعی فروش': CAT_SALE_RETURN, 'مرجوعی خرید': CAT_PURCHASE_RETURN,
+  }[invoice.kind];
+  const isExpense = invoice.kind === 'خرید' || invoice.kind === 'مرجوعی فروش';
+  if (!cat || !(amount > 0)) return;
+  store.put('txn', {
+    date: date || invoice.date || todayIso(),
+    type: isExpense ? 'هزینه' : 'درآمد',
+    cat,
+    amount,
+    accountId: '',
+    contactId: contactId || '',
+    method: method === 'چک' ? 'چک' : 'اعتباری',
+    note: `${invoice.kind} #${invoice.no} — ثبت خودکار (دریافت‌نشده)`,
+    invoiceId: invoice.id,
+    accrual: true,
+  });
+}
+
+/** ثبت کل مبلغ یک فاکتور در دفتر درآمد و هزینه (برای سفارش‌های سایت) */
+export function recordSaleLedger(store, invoice, { contactId = '', method = 'اعتباری', date } = {}) {
+  ledgerEntry(store, invoice, { amount: invoiceTotal(invoice), contactId, method, date });
+}
+
+function openInvoiceForm(ctx, invoice, options = {}) {
+
   const { state, store } = ctx;
   const settings = state.settings;
   const inv = invoice || {
@@ -183,6 +315,7 @@ function openInvoiceForm(ctx, invoice) {
     contactId: '', discount: 0, taxRate: 0, openingPaid: 0, items: [{}], note: '',
   };
   const isEdit = !!invoice;
+  const restock = !!options.restock;
 
   openDrawer({
     title: invoice ? `ویرایش فاکتور #${faNum(inv.no)}` : 'فاکتور جدید',
@@ -190,7 +323,9 @@ function openInvoiceForm(ctx, invoice) {
     submitLabel: 'ذخیره فاکتور',
     body: `
       <datalist id="product-list">${state.products.map((p) => `<option value="${esc(p.name)}"></option>`).join('')}</datalist>
-      ${isEdit ? `<div class="banner" data-tone="blue" style="margin-bottom:var(--sp-3)"><span class="ico" aria-hidden="true">${icon('info')}</span><div>در حالت ویرایش، موجودی کالاها دوباره تغییر نمی‌کند و پرداخت‌های ثبت‌شده حفظ می‌شود.</div></div>` : ''}
+      ${isEdit ? banner(restock
+        ? 'موجودی ردیف‌های قبلی به انبار برگشت می‌خورد و پس از ذخیره، موجودی بر اساس ردیف‌های جدید حساب می‌شود.'
+        : 'موجودی کالاها دست‌نخورده می‌ماند و پرداخت‌های ثبت‌شده حفظ می‌شود.', restock ? 'orange' : 'blue', icon('info')) + '<div style="height:var(--sp-3)"></div>' : ''}
       <div class="form-grid">
         ${select('kind', 'نوع فاکتور', INVOICE_KINDS, inv.kind)}
         ${text('no', 'شماره فاکتور', inv.no)}
@@ -199,6 +334,7 @@ function openInvoiceForm(ctx, invoice) {
         ${dateField('due', 'مهلت پرداخت', inv.due || inv.date)}
         ${numberField('taxRate', 'درصد مالیات', inv.taxRate ?? settings.taxRate)}
       </div>
+      <div class="form-grid" id="ref-box"></div>
 
       <h4 style="margin:var(--sp-4) 0 var(--sp-2)">ردیف‌های کالا</h4>
       <div class="line-head">
@@ -232,45 +368,7 @@ function openInvoiceForm(ctx, invoice) {
     onMount(form) {
       const kindEl = $('[name=kind]', form);
       const purchaseBox = $('#purchase-box', form);
-
-      const payExtra = $('#pay-extra', form);
-      const allAccounts = accountOptions(state);
-      const pick = (arr) => (arr.length ? arr : allAccounts);
-      const cashAccounts = pick(state.accounts.filter((a) => a.type === 'صندوق مغازه').map((a) => ({ v: a.id, t: a.name })));
-      const bankAccounts = pick(state.accounts.filter((a) => a.type !== 'صندوق مغازه').map((a) => ({ v: a.id, t: a.name })));
-
-      // پنل پرداخت فقط فیلدهای مربوط به همان روش پرداخت را نشان می‌دهد
-      const renderPay = () => {
-        const method = $('[name=payMethod]', form).value;
-        const hasContact = !!$('[name=contactId]', form).value;
-        let html = '';
-        if (method === 'نقد') {
-          html = select('payAccountId', 'ورود به صندوق', cashAccounts, cashAccounts[0]?.v || '', { blank: '—' });
-        } else if (method === 'کارتخوان') {
-          html = select('payAccountId', 'حساب مقصد کارتخوان', bankAccounts, bankAccounts[0]?.v || '', { blank: '—' })
-            + text('posName', 'کارتخوان', '', { placeholder: 'مثلاً کارتخوان ملت — پیشخوان' });
-        } else if (method === 'کارت به کارت' || method === 'انتقال بانکی') {
-          html = select('payAccountId', 'واریز به حساب', bankAccounts, bankAccounts[0]?.v || '', { blank: '—' })
-            + text('payRef', 'شماره پیگیری / چهار رقم آخر کارت', '');
-        } else if (method === 'چک') {
-          html = text('chequeNo', 'شماره چک', '')
-            + text('chequeBank', 'بانک', '')
-            + dateField('chequeDue', 'تاریخ سررسید', isoPlusDays(30));
-        } else if (method === 'اعتباری') {
-          html = hasContact
-            ? '<p class="small muted span-2">مبلغ به حساب طرف حساب انتخاب‌شده منظور می‌شود.</p>'
-            : text('buyerName', 'نام خریدار', '', { placeholder: 'مشتری متفرقه ثبت می‌شود' })
-              + text('buyerPhone', 'شماره تماس', '');
-        }
-        payExtra.innerHTML = html;
-        const amountField = $('[name=payAmount]', form).closest('.field');
-        if (amountField) amountField.style.display = method === 'اعتباری' ? 'none' : '';
-      };
-
-      $('[name=payMethod]', form).addEventListener('change', renderPay);
-      $('[name=contactId]', form).addEventListener('change', renderPay);
-      renderPay();
-
+      const refBox = $('#ref-box', form);
 
       const recalc = () => {
         const draft = {
@@ -307,7 +405,64 @@ function openInvoiceForm(ctx, invoice) {
       });
       form.addEventListener('change', recalc);
 
+      const renderPay = bindPayPanel(form, state, recalc);
+      void renderPay;
+
+      // مرجوعی: انتخاب فاکتور یا سفارش سایتِ مبنا و پر شدن خودکار ردیف‌ها
+      const byDateDesc = (a, b) => (b.date || '').localeCompare(a.date || '');
+      const refOptions = (kind) => {
+        if (kind === 'مرجوعی فروش') {
+          return [
+            ...state.invoices.filter((i) => i.kind === 'فروش').sort(byDateDesc).slice(0, 150)
+              .map((i) => ({ v: `invoice:${i.id}`, t: `فاکتور فروش #${i.no} — ${contactName(state, i.contactId)} — ${isoToJalali(i.date)}` })),
+            ...(state.orders || []).slice(0, 100)
+              .map((o) => ({ v: `order:${o.id}`, t: `سفارش سایت ${o.no || ''} — ${o.name || ''}` })),
+          ];
+        }
+        if (kind === 'مرجوعی خرید') {
+          return state.invoices.filter((i) => i.kind === 'خرید').sort(byDateDesc).slice(0, 150)
+            .map((i) => ({ v: `invoice:${i.id}`, t: `فاکتور خرید #${i.no} — ${contactName(state, i.contactId)} — ${isoToJalali(i.date)}` }));
+        }
+        return [];
+      };
+
+      const fillFromRef = (key) => {
+        const [type, id] = String(key).split(':');
+        const src = type === 'order'
+          ? (state.orders || []).find((o) => o.id === id)
+          : state.invoices.find((i) => i.id === id);
+        if (!src) return;
+        const rows = (src.items || []).map((it) => ({
+          desc: it.desc || productName(state, it.productId),
+          productId: it.productId || '',
+          qty: num(it.qty),
+          price: num(it.price),
+          discount: 0,
+        })).filter((it) => it.desc);
+        if (rows.length) $('#items', form).innerHTML = rows.map(itemRowHtml).join('');
+        if (src.contactId) $('[name=contactId]', form).value = src.contactId;
+        const label = type === 'order' ? `سفارش سایت ${src.no || ''}` : `فاکتور #${src.no || ''}`;
+        $('[name=note]', form).value = `مرجوعی از ${label}`;
+        recalc();
+      };
+
+      const renderRef = () => {
+        const options = refOptions(kindEl.value);
+        if (!options.length) { refBox.innerHTML = ''; return; }
+        refBox.innerHTML = select('refKey', 'مرجوعی از', options, inv.refKey || '', {
+          blank: '— انتخاب کنید —', span: true,
+          hint: 'با انتخاب فاکتور یا سفارش، ردیف‌ها و طرف حساب خودکار پر می‌شود',
+        });
+        $('[name=refKey]', refBox).addEventListener('change', (e) => {
+          if (e.target.value) fillFromRef(e.target.value);
+        });
+      };
+
+      kindEl.addEventListener('change', renderRef);
+      renderRef();
+
       $('#add-item', form).addEventListener('click', () => {
+
         $('#items', form).insertAdjacentHTML('beforeend', itemRowHtml());
         const rows = $$('[data-item]', form);
         $('[name=desc]', rows[rows.length - 1]).focus();
@@ -329,18 +484,32 @@ function openInvoiceForm(ctx, invoice) {
       const items = readItems(form, state, isEdit ? (invoice.items || []) : []);
       if (!items.length) { toast('حداقل یک ردیف کالا لازم است.', 'red'); return false; }
 
-      if (values.payMethod === 'اعتباری' && !values.contactId && !String(values.buyerName || '').trim()) {
-        toast('برای پرداخت اعتباری، طرف حساب یا نام خریدار لازم است.', 'red');
+      const isPurchase = values.kind === 'خرید';
+      const markup = num(values.markup) || settings.buyMarkup;
+      const method = values.payMethod || 'نقد';
+
+      // خریدار می‌تواند از لیست طرف حساب‌ها انتخاب شود یا تازه ساخته شود
+      let buyerId = values.contactId || values.creditContactId || '';
+      if (!buyerId && String(values.buyerName || '').trim()) {
+        buyerId = store.put('contact', {
+          name: String(values.buyerName).trim(),
+          role: isPurchase ? 'تأمین‌کننده' : 'مشتری',
+          phone: values.buyerPhone || '', nid: '', address: '',
+          note: 'ثبت خودکار از فاکتور',
+        }).id;
+      }
+      if (method === 'اعتباری' && !buyerId) {
+        toast('برای پرداخت اعتباری، طرف حساب را از لیست انتخاب کنید یا نام خریدار را بنویسید.', 'red');
         return false;
       }
 
-      const isPurchase = values.kind === 'خرید';
-      const markup = num(values.markup) || settings.buyMarkup;
+      // اگر کاربر در آغاز ویرایش «بله» را زده باشد، اثر ردیف‌های قبلی روی انبار برگشت می‌خورد
+      if (isEdit && restock) applyStockChange(store, state, invoice.kind, invoice.items || [], -1);
 
       // افزودن/به‌روزرسانی کالاها از فاکتور خرید
-      if (isPurchase && values.addToProducts && !isEdit) {
+      if (isPurchase && values.addToProducts && (!isEdit || restock)) {
         items.forEach((it) => {
-          const existing = state.products.find((p) => p.name === it.desc);
+          const existing = findProduct(state, it);
           if (existing) {
             store.put('product', {
               ...existing,
@@ -355,43 +524,28 @@ function openInvoiceForm(ctx, invoice) {
             });
           }
         });
-      }
-
-      // کسر موجودی در فروش
-      if ((values.kind === 'فروش' || values.kind === 'مرجوعی فروش') && !isEdit) {
-        const sign = values.kind === 'فروش' ? -1 : 1;
-        let missing = 0;
-        items.forEach((it) => {
-          const product = state.products.find((p) => p.id === it.productId)
-            || state.products.find((p) => normText(p.name) === normText(it.desc));
-          if (product) store.put('product', { ...product, stock: num(product.stock) + sign * it.qty });
-          else missing += 1;
-        });
+      } else if (!isEdit || restock) {
+        // موجودی بر اساس نوع فاکتور کم یا زیاد می‌شود
+        const missing = applyStockChange(store, state, values.kind, items, 1);
         if (missing) toast(`${faNum(missing)} ردیف در لیست کالاها نبود؛ موجودی آن‌ها تغییر نکرد.`, 'orange');
-      }
-
-      // خریدار متفرقه در حالت اعتباری در دفتر طرف حساب‌ها ثبت می‌شود
-      let buyerId = values.contactId || '';
-      if (!buyerId && values.payMethod === 'اعتباری' && String(values.buyerName || '').trim()) {
-        buyerId = store.put('contact', {
-          name: String(values.buyerName).trim(),
-          role: isPurchase ? 'تأمین‌کننده' : 'مشتری',
-          phone: values.buyerPhone || '', nid: '', address: '',
-          note: 'ثبت خودکار از فاکتور',
-        }).id;
       }
 
       const saved = store.put('invoice', {
         id: inv.id, no: values.no || nextInvoiceNo(state), kind: values.kind,
         date: values.date || todayIso(), due: values.due || values.date,
         contactId: buyerId, discount: num(values.discount), taxRate: num(values.taxRate),
+        refKey: values.refKey || inv.refKey || '',
         // پرداخت‌های قبلی (تراکنش‌های مرتبط) حفظ می‌شود؛ openingPaid فقط برای صدور جدید است
         openingPaid: isEdit ? num(invoice.openingPaid) : 0, items, note: values.note,
       });
 
-      const paid = num(values.payAmount);
-      const method = values.payMethod || 'نقد';
+      const total = invoiceTotal(saved);
+      const paid = method === 'اعتباری' ? 0 : Math.min(total, num(values.payAmount));
       const isExpense = values.kind === 'خرید' || values.kind === 'مرجوعی فروش';
+      const cashCat = {
+        'فروش': CAT_SALE, 'خرید': CAT_PURCHASE,
+        'مرجوعی فروش': CAT_SALE_RETURN, 'مرجوعی خرید': CAT_PURCHASE_RETURN,
+      }[values.kind] || CAT_SALE;
 
       if (!isEdit && method === 'چک' && paid > 0) {
         // چک به‌جای تراکنش نقدی، در دفتر چک‌ها ثبت می‌شود
@@ -400,20 +554,29 @@ function openInvoiceForm(ctx, invoice) {
           no: values.chequeNo || '', bank: values.chequeBank || '', amount: paid,
           due: values.chequeDue || values.date || todayIso(),
           contactId: buyerId, status: 'در جریان',
-          note: `فاکتور #${saved.no}`,
+          note: `فاکتور #${saved.no}`, invoiceId: saved.id,
         });
       } else if (!isEdit && method !== 'اعتباری' && paid > 0) {
         store.put('txn', {
           date: values.date || todayIso(),
           type: isExpense ? 'هزینه' : 'درآمد',
-          cat: isPurchase ? 'خرید کالا' : 'فروش کالا',
+          cat: cashCat,
           amount: paid, accountId: values.payAccountId, contactId: buyerId,
           method, note: `فاکتور #${saved.no}${values.posName ? ` — ${values.posName}` : ''}${values.payRef ? ` — ${values.payRef}` : ''}`,
           invoiceId: saved.id,
         });
       }
 
+      // هر فروش/خرید حتی نسیه، خودکار در دفتر درآمد و هزینه ثبت می‌شود
+      if (!isEdit) {
+        const cashPart = method === 'چک' || method === 'اعتباری' ? 0 : paid;
+        ledgerEntry(store, saved, {
+          amount: total - cashPart, contactId: buyerId, method, date: values.date || todayIso(),
+        });
+      }
+
       toast('فاکتور ذخیره شد', 'green');
+
       ctx.refresh();
       return true;
     },
@@ -474,7 +637,7 @@ export const invoices = {
       const st = invoiceStatus(inv, state.txns);
       return {
         _id: inv.id,
-        no: `<span class="nums">#${faNum(inv.no || '')}</span>`,
+        no: `<span class="nums">#${faNum(inv.no || '')}</span>${inv.refKey ? `<div class="tiny muted">${esc(refLabel(state, inv.refKey))}</div>` : ''}`,
         kind: chip(inv.kind, inv.kind === 'فروش' ? 'green' : inv.kind === 'خرید' ? 'blue' : 'orange'),
         party: esc(contactName(state, inv.contactId)),
         date: isoToJalali(inv.date),
@@ -522,14 +685,50 @@ export const invoices = {
       const filter = e.target.closest('[data-filter]');
       if (filter) return ctx.setParams({ kind: filter.dataset.filter });
       const edit = e.target.closest('[data-edit]');
-      if (edit) return openInvoiceForm(ctx, ctx.state.invoices.find((i) => i.id === edit.dataset.edit));
+      if (edit) {
+        const inv = ctx.state.invoices.find((i) => i.id === edit.dataset.edit);
+        if (!inv) return undefined;
+        let restock = false;
+        if ((inv.items || []).length && STOCK_SIGN[inv.kind]) {
+          restock = await confirmDialog({
+            title: 'موجودی کالاهای این فاکتور برگردد؟',
+            message: 'با «بله»، اثر ردیف‌های فعلی روی انبار برگشت داده می‌شود و پس از ذخیره، موجودی بر اساس ردیف‌های جدید حساب می‌شود. با «انصراف»، موجودی دست‌نخورده می‌ماند.',
+            confirmLabel: 'بله، برگردد',
+            danger: false,
+          });
+        }
+        return openInvoiceForm(ctx, inv, { restock });
+      }
       const print = e.target.closest('[data-print]');
       if (print) return printInvoice(ctx.state, ctx.state.invoices.find((i) => i.id === print.dataset.print));
       const del = e.target.closest('[data-del]');
-      if (del && await confirmDialog({ title: 'حذف فاکتور؟', message: 'فاکتور حذف می‌شود؛ موجودی کالاها برنمی‌گردد.' })) {
-        ctx.store.remove('invoice', del.dataset.del);
-        toast('حذف شد');
+      if (del) {
+        const inv = ctx.state.invoices.find((i) => i.id === del.dataset.del);
+        if (!inv) return undefined;
+        const ok = await confirmDialog({
+          title: `حذف فاکتور #${faNum(inv.no || '')}؟`,
+          message: 'فاکتور حذف می‌شود. تراکنش‌های نقدی ثبت‌شده در دفتر باقی می‌مانند.',
+        });
+        if (!ok) return undefined;
+        let back = false;
+        if ((inv.items || []).length && STOCK_SIGN[inv.kind]) {
+          back = await confirmDialog({
+            title: 'موجودی کالاها به انبار برگردد؟',
+            message: inv.kind === 'فروش'
+              ? 'با «بله»، کالاهای این فاکتور فروش به موجودی انبار اضافه می‌شود.'
+              : 'با «بله»، اثر این فاکتور روی موجودی انبار برگشت داده می‌شود.',
+            confirmLabel: 'بله، برگردد',
+            danger: false,
+          });
+        }
+        if (back) applyStockChange(ctx.store, ctx.state, inv.kind, inv.items || [], -1);
+        // ثبت خودکار نسیهٔ همین فاکتور هم حذف می‌شود تا درآمد ساختگی نماند
+        ctx.state.txns.filter((t) => t.invoiceId === inv.id && t.accrual)
+          .forEach((t) => ctx.store.remove('txn', t.id));
+        ctx.store.remove('invoice', inv.id);
+        toast(back ? 'فاکتور حذف شد و موجودی برگشت' : 'فاکتور حذف شد');
       }
+
       return undefined;
     });
   },
@@ -617,68 +816,178 @@ function priceBumpForm(ctx) {
 
 /* ============================== فروش سریع ============================== */
 
-/** فروش یک کالا بدون پر کردن فرم کامل فاکتور؛ فاکتور فروش خودکار ساخته می‌شود. */
+const QUICK_DRAFT_KEY = 'hesabyar.quicksale.v1';
+
+const readQuickDraft = () => {
+  try { return JSON.parse(localStorage.getItem(QUICK_DRAFT_KEY) || 'null'); } catch { return null; }
+};
+const writeQuickDraft = (draft) => {
+  try { localStorage.setItem(QUICK_DRAFT_KEY, JSON.stringify(draft)); } catch { /* حافظه پر است */ }
+};
+export const clearQuickDraft = () => {
+  try { localStorage.removeItem(QUICK_DRAFT_KEY); } catch { /* بی‌اهمیت */ }
+};
+
+/**
+ * فروش سریع: چند ردیف کالا در یک فاکتور، با همان روش‌های پرداخت فاکتور کامل.
+ * تا وقتی ثبت نشود، ردیف‌ها به شکل پیش‌نویس روی همین دستگاه می‌مانند.
+ */
 export function quickSaleForm(ctx, product) {
   const { state, store } = ctx;
-  const p = product || null;
+  const draft = product ? null : readQuickDraft();
+  const draftRows = ((draft && draft.rows) || []).filter((r) => String(r.desc || '').trim());
+  const startRows = product
+    ? [{ desc: product.name, productId: product.id, qty: 1, price: num(product.sell) }]
+    : (draftRows.length ? draftRows : [{}]);
 
   openDrawer({
     title: 'فروش سریع',
+    wide: true,
     submitLabel: 'ثبت فروش',
+    extraActions: '<button type="button" class="btn btn-sm" data-clear-draft>پاک کردن پیش‌نویس</button>',
     body: `
-      <datalist id="quick-products">${state.products.map((x) => `<option value="${esc(x.name)}"></option>`).join('')}</datalist>
-      <div class="form-grid">
-        ${text('desc', 'کالا', p?.name || '', { attrs: 'list="quick-products"', span: true, placeholder: 'نام کالا را بنویسید' })}
-        ${numberField('qty', 'تعداد', 1)}
-        ${numberField('price', 'قیمت واحد (تومان)', p ? num(p.sell) : '')}
-        ${select('payMethod', 'روش پرداخت', ['نقد', 'کارتخوان', 'کارت به کارت', 'اعتباری'], 'نقد')}
-        ${select('payAccountId', 'حساب مقصد', accountOptions(state), state.accounts[0]?.id || '', { blank: '—' })}
-        ${select('contactId', 'مشتری', contactOptions(state), '', { blank: 'مشتری متفرقه' })}
+      <datalist id="product-list">${state.products.map((p) => `<option value="${esc(p.name)}"></option>`).join('')}</datalist>
+      ${draftRows.length ? banner(`<b>${faNum(draftRows.length)} ردیف</b> از پیش‌نویس قبلی بازیابی شد.`, 'blue', icon('info')) + '<div style="height:var(--sp-3)"></div>' : ''}
+      <div class="line-head">
+        <span>کالا</span><span>تعداد</span><span>قیمت واحد</span><span>تخفیف</span><span></span>
       </div>
+      <div id="items">${startRows.map(itemRowHtml).join('')}</div>
+      <button type="button" class="btn btn-sm" id="q-add-item">افزودن ردیف</button>
+
+      <div class="form-grid" style="margin-top:var(--sp-4)">
+        ${select('contactId', 'مشتری', contactOptions(state), (draft && draft.contactId) || '', { blank: 'مشتری متفرقه' })}
+        ${dateField('date', 'تاریخ', (draft && draft.date) || todayIso())}
+        ${select('payMethod', 'روش پرداخت', PAY_METHODS, (draft && draft.payMethod) || 'نقد')}
+        ${numberField('payAmount', 'مبلغ دریافتی (تومان)', '', { hint: 'خالی = تمام مبلغ فاکتور' })}
+      </div>
+      <div class="form-grid" id="pay-extra"></div>
       <div class="totals" id="q-total" style="margin-top:var(--sp-3)"></div>`,
 
     onMount(form) {
       const recalc = () => {
-        const nameEl = $('[name=desc]', form);
-        const priceEl = $('[name=price]', form);
-        const prod = state.products.find((x) => normText(x.name) === normText(nameEl.value));
-        if (prod && !num(priceEl.value)) priceEl.value = num(prod.sell);
-        const total = num($('[name=qty]', form).value) * num(priceEl.value);
-        $('#q-total', form).innerHTML = `<div class="line grand"><span>مبلغ کل</span><b class="nums">${toman(total)}</b></div>`
-          + (prod ? `<div class="line"><span>موجودی پس از فروش</span><b class="nums">${faNum(num(prod.stock) - num($('[name=qty]', form).value))} ${esc(prod.unit || '')}</b></div>` : '');
+        const rows = readItems(form, state);
+        const total = sum(rows, (it) => Math.max(0, num(it.qty) * num(it.price) - num(it.discount)));
+        const lines = rows.map((it) => {
+          const prod = findProduct(state, it);
+          return prod
+            ? `<div class="line"><span>${esc(prod.name)}</span><b class="nums">موجودی پس از فروش: ${faNum(num(prod.stock) - num(it.qty))} ${esc(prod.unit || '')}</b></div>`
+            : `<div class="line"><span>${esc(it.desc)}</span><b class="nums">در انبار نیست</b></div>`;
+        }).join('');
+        $('#q-total', form).innerHTML = `${lines}<div class="line grand"><span>مبلغ کل</span><b class="nums">${toman(total)}</b></div>`;
       };
-      form.addEventListener('input', recalc);
-      form.addEventListener('change', recalc);
-      recalc();
-    },
 
-    onSubmit(values) {
-      const desc = String(values.desc || '').trim();
-      const qty = num(values.qty);
-      const price = num(values.price);
-      if (!desc || qty <= 0) { toast('نام کالا و تعداد را وارد کنید.', 'red'); return false; }
-      const prod = state.products.find((x) => normText(x.name) === normText(desc));
-      const total = qty * price;
+      const saveDraft = debounce(() => {
+        if (product) return;
+        const rows = $$('[data-item]', form).map((row) => ({
+          desc: $('[name=desc]', row).value,
+          qty: $('[name=qty]', row).value,
+          price: $('[name=price]', row).value,
+          discount: $('[name=discount]', row).value,
+        })).filter((r) => String(r.desc || '').trim());
+        const dateRaw = $('[name=date]', form).value;
+        writeQuickDraft({
+          rows,
+          contactId: $('[name=contactId]', form).value,
+          payMethod: $('[name=payMethod]', form).value,
+          date: dateRaw ? jalaliToIso(dateRaw) : todayIso(),
+          at: Date.now(),
+        });
+      }, 400);
 
-      const saved = store.put('invoice', {
-        no: nextInvoiceNo(state), kind: 'فروش', date: todayIso(), due: todayIso(),
-        contactId: values.contactId || '', discount: 0, taxRate: 0, openingPaid: 0,
-        items: [{ desc, productId: prod?.id || '', qty, price, discount: 0, cost: prod ? num(prod.buy) : 0 }],
-        note: 'فروش سریع',
+      form.addEventListener('input', (e) => {
+        if (e.target.name === 'desc') {
+          const prod = state.products.find((p) => normText(p.name) === normText(e.target.value));
+          if (prod) {
+            const priceEl = $('[name=price]', e.target.closest('[data-item]'));
+            if (!num(priceEl.value)) priceEl.value = num(prod.sell);
+          }
+        }
+        recalc();
+        saveDraft();
+      });
+      form.addEventListener('change', () => { recalc(); saveDraft(); });
+
+      $('#q-add-item', form).addEventListener('click', () => {
+        $('#items', form).insertAdjacentHTML('beforeend', itemRowHtml());
+        const rows = $$('[data-item]', form);
+        $('[name=desc]', rows[rows.length - 1]).focus();
       });
 
-      if (prod) store.put('product', { ...prod, stock: num(prod.stock) - qty });
-      else toast('این کالا در انبار نبود؛ فقط فاکتور ثبت شد.', 'orange');
+      form.addEventListener('click', (e) => {
+        if (e.target.closest('[data-rm]')) {
+          const rows = $$('[data-item]', form);
+          if (rows.length > 1) e.target.closest('[data-item]').remove();
+          else $$('input', rows[0]).forEach((el) => { el.value = ''; });
+          recalc();
+          saveDraft();
+        }
+      });
 
-      if (values.payMethod !== 'اعتباری' && total > 0) {
-        store.put('txn', {
-          date: todayIso(), type: 'درآمد', cat: 'فروش کالا', amount: total,
-          accountId: values.payAccountId, contactId: values.contactId || '',
-          method: values.payMethod, note: `فروش سریع #${saved.no}`, invoiceId: saved.id,
+      const drawer = form.closest('.drawer');
+      if (drawer) {
+        drawer.addEventListener('click', (e) => {
+          if (!e.target.closest('[data-clear-draft]')) return;
+          clearQuickDraft();
+          $('#items', form).innerHTML = itemRowHtml();
+          recalc();
+          toast('پیش‌نویس پاک شد');
         });
       }
 
-      toast('فروش ثبت شد', 'green');
+      bindPayPanel(form, state, recalc);
+      recalc();
+    },
+
+    onSubmit(values, { form }) {
+      const items = readItems(form, state);
+      if (!items.length) { toast('حداقل یک ردیف کالا با تعداد لازم است.', 'red'); return false; }
+
+      const date = values.date || todayIso();
+      const method = values.payMethod || 'نقد';
+      let contactId = values.contactId || values.creditContactId || '';
+      if (!contactId && String(values.buyerName || '').trim()) {
+        contactId = store.put('contact', {
+          name: String(values.buyerName).trim(), role: 'مشتری',
+          phone: values.buyerPhone || '', nid: '', address: '',
+          note: 'ثبت خودکار از فروش سریع',
+        }).id;
+      }
+      if (method === 'اعتباری' && !contactId) {
+        toast('برای فروش اعتباری، مشتری را انتخاب کنید یا نام خریدار را بنویسید.', 'red');
+        return false;
+      }
+
+      const saved = store.put('invoice', {
+        no: nextInvoiceNo(state), kind: 'فروش', date, due: date,
+        contactId, discount: 0, taxRate: 0, openingPaid: 0, items, note: 'فروش سریع',
+      });
+
+      const missing = applyStockChange(store, state, 'فروش', items, 1);
+      if (missing) toast(`${faNum(missing)} ردیف در انبار نبود؛ فقط در فاکتور ثبت شد.`, 'orange');
+
+      const total = invoiceTotal(saved);
+      const paid = method === 'اعتباری' ? 0 : Math.min(total, num(values.payAmount) || total);
+
+      if (method === 'چک' && paid > 0) {
+        store.put('cheque', {
+          kind: CHEQUE_KINDS[0], no: values.chequeNo || '', bank: values.chequeBank || '',
+          amount: paid, due: values.chequeDue || date, contactId, status: 'در جریان',
+          note: `فروش سریع #${saved.no}`, invoiceId: saved.id,
+        });
+      } else if (method !== 'اعتباری' && paid > 0) {
+        store.put('txn', {
+          date, type: 'درآمد', cat: CAT_SALE, amount: paid,
+          accountId: values.payAccountId, contactId, method,
+          note: `فروش سریع #${saved.no}${values.posName ? ` — ${values.posName}` : ''}${values.payRef ? ` — ${values.payRef}` : ''}`,
+          invoiceId: saved.id,
+        });
+      }
+
+      const cashPart = method === 'چک' || method === 'اعتباری' ? 0 : paid;
+      ledgerEntry(store, saved, { amount: total - cashPart, contactId, method, date });
+
+      clearQuickDraft();
+      toast(`فروش ${faNum(items.length)} ردیفی ثبت شد`, 'green');
       ctx.refresh();
       return true;
     },
@@ -686,6 +995,7 @@ export function quickSaleForm(ctx, product) {
 }
 
 export const products = {
+
   title: 'کالاها و موجودی',
   subtitle: () => 'لیست کامل محصولات مغازه با قیمت خرید، فروش و موجودی',
   actions: () => `
