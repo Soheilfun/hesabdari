@@ -10,38 +10,65 @@ import { esc, isoToJalali, jalaliToIso, todayIso } from './core.js';
  * از فونت آیکون یا کاراکترهای یونیکد استفاده نمی‌کنیم تا روی همه
  * دستگاه‌ها (ویندوز، اندروید، iOS) دقیقاً یکسان دیده شوند. */
 const PATHS = {
-  dashboard: '<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="11" width="7" height="10" rx="1.5"/><rect x="3" y="15" width="7" height="6" rx="1.5"/>',
-  report: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
-  cart: '<circle cx="9" cy="20" r="1.4"/><circle cx="17" cy="20" r="1.4"/><path d="M2.5 4h2.3l2.4 11h10.3l2-7.5H6.2"/>',
-  invoice: '<path d="M6 3h12v18l-3-2-3 2-3-2-3 2Z"/><path d="M9 8h6M9 12h6"/>',
-  box: '<path d="m12 3 8 4.5v9L12 21l-8-4.5v-9Z"/><path d="m4 7.5 8 4.5 8-4.5M12 12v9"/>',
-  upload: '<path d="M12 16V4m0 0 4 4m-4-4L8 8"/><path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/>',
-  users: '<circle cx="9" cy="8" r="3.2"/><path d="M3 20a6 6 0 0 1 12 0"/><path d="M16 5.5a3 3 0 0 1 0 5.8M17 14.4a5.5 5.5 0 0 1 4 5.6"/>',
-  swap: '<path d="M7 4v14m0 0 3-3m-3 3-3-3M17 20V6m0 0 3 3m-3-3-3 3"/>',
-  wallet: '<rect x="3" y="6" width="18" height="13" rx="2.5"/><path d="M3 10h18"/><circle cx="17" cy="14.5" r="1.2" fill="currentColor" stroke="none"/>',
-  cheque: '<rect x="2.5" y="6" width="19" height="12" rx="2"/><path d="M6 14h5M6 10h3"/><circle cx="17" cy="12" r="2"/>',
-  budget: '<circle cx="12" cy="12" r="8.5"/><path d="M12 12V4a8 8 0 0 1 7.6 5.5Z" fill="currentColor" stroke="none" opacity=".35"/><path d="M12 12l5.5 4"/>',
-  doc: '<path d="M6 3h8l4 4v14H6Z"/><path d="M14 3v4h4M9 12h6M9 16h4"/>',
-  settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 14.5a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1v.3a2 2 0 1 1-4 0v-.2a1.6 1.6 0 0 0-2.8-1.1l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0-1.1-2.7H3.3a2 2 0 1 1 0-4h.2a1.6 1.6 0 0 0 1.1-2.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 2.7-1.1V3.3a2 2 0 1 1 4 0v.2a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0 1.1 2.7h.3a2 2 0 1 1 0 4h-.2a1.6 1.6 0 0 0-1.4 1Z"/>',
-  edit: '<path d="M4 20h4l10-10a2.8 2.8 0 1 0-4-4L4 16Z"/><path d="m13.5 6.5 4 4"/>',
-  trash: '<path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/><path d="M10 11v6M14 11v6"/>',
-  print: '<path d="M7 9V4h10v5"/><rect x="3.5" y="9" width="17" height="7" rx="2"/><path d="M7 14h10v6H7Z"/>',
-  check: '<path d="m5 12.5 4.5 4.5L19 7"/>',
-  alert: '<path d="M12 4 2.8 20h18.4Z"/><path d="M12 10v4M12 17.2v.1"/>',
-  info: '<circle cx="12" cy="12" r="8.5"/><path d="M12 11v5M12 7.8v.1"/>',
-  up: '<path d="M12 20V5m0 0 6 6m-6-6-6 6"/>',
-  down: '<path d="M12 4v15m0 0 6-6m-6 6-6-6"/>',
-  empty: '<rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M3 10h18M9 5v14"/>',
-  search: '<circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/>',
-  theme: '<circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v17a8.5 8.5 0 0 0 0-17Z" fill="currentColor" stroke="none"/>',
-  power: '<path d="M12 3v8"/><path d="M7.2 6.4a7.5 7.5 0 1 0 9.6 0"/>',
-  close: '<path d="m6 6 12 12M18 6 6 18"/>',
-  download: '<path d="M12 4v11m0 0 4-4m-4 4-4-4"/><path d="M4 19h16"/>',
-  sparkle: '<path d="M12 3.5l1.7 4.3 4.3 1.7-4.3 1.7L12 15.5l-1.7-4.3L6 9.5l4.3-1.7Z"/><path d="M18 15.5l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8Z"/>',
+  /* نمای کلی — پنل‌های گزارش */
+  dashboard: '<rect x="3" y="3" width="7.5" height="9" rx="2.2"/><rect x="13.5" y="3" width="7.5" height="5.5" rx="2.2"/><rect x="13.5" y="11.5" width="7.5" height="9.5" rx="2.2"/><rect x="3" y="15" width="7.5" height="6" rx="2.2"/>',
+  /* گزارش — میله‌های مالی روی محور */
+  report: '<path d="M3.5 20.5h17"/><rect x="5" y="11" width="3.6" height="6.2" rx="1.4"/><rect x="10.2" y="6.5" width="3.6" height="10.7" rx="1.4"/><rect x="15.4" y="9" width="3.6" height="8.2" rx="1.4"/>',
+  /* فروشگاه — ساک خرید */
+  cart: '<path d="M5 8h14l-1.1 11.2a2 2 0 0 1-2 1.8H8.1a2 2 0 0 1-2-1.8Z"/><path d="M9 10V6.8a3 3 0 0 1 6 0V10"/>',
+  /* فاکتور — رسید دندانه‌دار */
+  invoice: '<path d="M5.5 3.6h13v16.9l-2.2-1.4-2.1 1.4-2.2-1.4-2.2 1.4-2.1-1.4-2.2 1.4Z"/><path d="M9 8.4h6M9 12.2h6M9 15.6h3.5"/>',
+  /* کالا — جعبهٔ انبار */
+  box: '<path d="m12 3.2 8 4.3v9L12 20.8 4 16.5v-9Z"/><path d="m4 7.5 8 4.3 8-4.3M12 11.8v9M8 5.3l8 4.3"/>',
+  /* ورود گروهی — بارگذاری در سینی */
+  upload: '<path d="M12 15.5V4.2m0 0 3.8 3.8M12 4.2 8.2 8"/><path d="M4 15v3.2a2.3 2.3 0 0 0 2.3 2.3h11.4A2.3 2.3 0 0 0 20 18.2V15"/>',
+  /* طرف حساب — مشتریان */
+  users: '<circle cx="9.2" cy="8.2" r="3.3"/><path d="M3.2 20a6 6 0 0 1 12 0"/><path d="M16.2 5.6a3.1 3.1 0 0 1 0 5.9M17.4 14.4a5.6 5.6 0 0 1 3.4 5.6"/>',
+  /* تراکنش — گردش درآمد و هزینه */
+  swap: '<path d="M7 3.8v15m0 0 3.2-3.2M7 18.8 3.8 15.6"/><path d="M17 20.2v-15m0 0 3.2 3.2M17 5.2l-3.2 3.2"/>',
+  /* صندوق و حساب — کیف پول */
+  wallet: '<path d="M3.2 8.4A2.4 2.4 0 0 1 5.6 6h11.2a2.4 2.4 0 0 1 2.4 2.4v8.8a2.4 2.4 0 0 1-2.4 2.4H5.6a2.4 2.4 0 0 1-2.4-2.4Z"/><path d="M16 6V4.9a1.6 1.6 0 0 0-2-1.55L5.2 5.6"/><path d="M19.2 11.2h-3a1.9 1.9 0 0 0 0 3.8h3"/>',
+  /* چک — برگهٔ بانکی با امضا */
+  cheque: '<rect x="2.6" y="5.6" width="18.8" height="12.8" rx="2.6"/><path d="M2.6 9.6h18.8"/><path d="M6 14.4c1.2-1.4 2.2-1.4 3 0s1.7 1.4 2.8 0"/><path d="M15.6 14.4h3"/>',
+  /* بودجه — سهم هزینه‌ها */
+  budget: '<circle cx="12" cy="12" r="8.6"/><path d="M12 12V3.4a8.6 8.6 0 0 1 7.9 5.2Z" fill="currentColor" stroke="none" opacity=".3"/><path d="M12 12 6.4 17.8"/>',
+  /* اسناد — دفتر حساب */
+  doc: '<path d="M6 3.4h7.6L18.4 8v12.6H6Z"/><path d="M13.4 3.4V8h5"/><path d="M9 12.4h6M9 16h4"/>',
+  /* تنظیمات — لغزنده‌ها */
+  settings: '<path d="M4 7.2h9M17.4 7.2H20M4 16.8h3.6M12 16.8h8"/><circle cx="15.2" cy="7.2" r="2.4"/><circle cx="9.6" cy="16.8" r="2.4"/>',
+  /* ویرایش — قلم */
+  edit: '<path d="M4 20h4l10.2-10.2a2.9 2.9 0 0 0-4.1-4.1L4 16Z"/><path d="m13.6 6.4 4.1 4.1M4 20l1-4"/>',
+  trash: '<path d="M4 6.8h16M9.4 6.8V4.9h5.2v1.9"/><path d="M6.4 6.8 7.5 20h9l1.1-13.2"/><path d="M10.4 10.6v5.6M13.6 10.6v5.6"/>',
+  /* چاپ فاکتور */
+  print: '<path d="M7 9.2V3.8h10v5.4"/><path d="M4 9.2h16a1.6 1.6 0 0 1 1.6 1.6v4.4A1.6 1.6 0 0 1 20 16.8h-3V20H7v-3.2H4a1.6 1.6 0 0 1-1.6-1.6v-4.4A1.6 1.6 0 0 1 4 9.2Z"/><path d="M7 13.2h10"/>',
+  check: '<path d="m4.8 12.6 4.6 4.6L19.2 7.4"/>',
+  alert: '<path d="M10.3 4.2 2.9 17.6A2 2 0 0 0 4.6 20.6h14.8a2 2 0 0 0 1.7-3L13.7 4.2a2 2 0 0 0-3.4 0Z"/><path d="M12 10v4M12 17.4v.1"/>',
+  info: '<circle cx="12" cy="12" r="8.6"/><path d="M12 11.2v5M12 7.8v.1"/>',
+  up: '<path d="M12 20V4.6m0 0 5.6 5.6M12 4.6 6.4 10.2"/>',
+  down: '<path d="M12 4v15.4m0 0 5.6-5.6M12 19.4l-5.6-5.6"/>',
+  /* خالی — قفسهٔ بدون کالا */
+  empty: '<rect x="3" y="5" width="18" height="14" rx="3"/><path d="M3 10.4h18M9.2 5v14"/>',
+  search: '<circle cx="11" cy="11" r="6.6"/><path d="m15.9 15.9 4.6 4.6"/>',
+  theme: '<circle cx="12" cy="12" r="8.6"/><path d="M12 3.4v17.2a8.6 8.6 0 0 0 0-17.2Z" fill="currentColor" stroke="none"/>',
+  power: '<path d="M12 3.2v8.4"/><path d="M7.1 6.4a7.6 7.6 0 1 0 9.8 0"/>',
+  close: '<path d="m6.2 6.2 11.6 11.6M17.8 6.2 6.2 17.8"/>',
+  download: '<path d="M12 4v11.4m0 0 4-4m-4 4-4-4"/><path d="M4.4 19.4h15.2"/>',
+  /* دستیار هوشمند */
+  sparkle: '<path d="m11.6 3.4 1.9 4.7 4.7 1.9-4.7 1.9-1.9 4.7-1.9-4.7L5 10l4.7-1.9Z"/><path d="m18.2 15.4.9 2.2 2.2.9-2.2.9-.9 2.2-.9-2.2-2.2-.9 2.2-.9Z"/>',
+  /* آیکون‌های تکمیلی حسابداری */
+  coins: '<ellipse cx="9" cy="6.6" rx="5.4" ry="2.6"/><path d="M3.6 6.6v4.2c0 1.4 2.4 2.6 5.4 2.6s5.4-1.2 5.4-2.6V6.6"/><ellipse cx="15" cy="9.2" rx="5.4" ry="2.6"/><path d="M9.6 13.6c.5 1.2 2.7 2.1 5.4 2.1 3 0 5.4-1.2 5.4-2.6V9.2"/><path d="M9.6 17.4c.5 1.2 2.7 2.1 5.4 2.1 3 0 5.4-1.2 5.4-2.6"/>',
+  calculator: '<rect x="4.4" y="2.8" width="15.2" height="18.4" rx="3"/><rect x="7.4" y="5.8" width="9.2" height="3.4" rx="1.2"/><path d="M8 13h.1M12 13h.1M16 13h.1M8 17h.1M12 17h.1M16 17h.1"/>',
+  bank: '<path d="M3.4 9.4 12 4.2l8.6 5.2"/><path d="M5.6 9.8v8M10 9.8v8M14 9.8v8M18.4 9.8v8"/><path d="M3.2 20.4h17.6"/>',
+  receipt: '<path d="M6 3.6h12v17l-2-1.3-2 1.3-2-1.3-2 1.3-2-1.3-2 1.3Z"/><path d="M9.4 8.4h5.2M9.4 12.4h5.2"/>',
+  percent: '<circle cx="7.6" cy="7.6" r="2.8"/><circle cx="16.4" cy="16.4" r="2.8"/><path d="M18.6 5.4 5.4 18.6"/>',
+  tag: '<path d="M11.4 3.4H20v8.6l-8.6 8.6a1.8 1.8 0 0 1-2.5 0l-6.1-6.1a1.8 1.8 0 0 1 0-2.5Z"/><circle cx="16.2" cy="7.8" r="1.4"/>',
+  clock: '<circle cx="12" cy="12" r="8.6"/><path d="M12 7.2V12l3.2 2"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  filter: '<path d="M3.6 5.4h16.8l-6.4 7.6v6.2l-4-2v-4.2Z"/>',
 };
 
 export const icon = (name, size = 18) =>
-  `<svg class="i" viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${PATHS[name] || PATHS.info}</svg>`;
+  `<svg class="i" viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${PATHS[name] || PATHS.info}</svg>`;
 
 export const $ = (sel, root = document) => root.querySelector(sel);
 export const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];

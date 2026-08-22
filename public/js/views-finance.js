@@ -914,9 +914,9 @@ export const settings = {
             <li>پیش‌نویس «فروش سریع» تا ثبت نهایی روی همین دستگاه می‌ماند.</li>
           </ul>
           <div class="cluster" style="margin-top:var(--sp-4)">
-            <span class="chip">نسخه ۱.۹ بتا</span>
+            <span class="chip">نسخه ۲.۰ بتا</span>
           </div>
-          <p class="small muted" style="margin-top:var(--sp-2)">حساب‌یار ۱.۹ بتا — دفتر یکپارچهٔ فروش، تسویهٔ طرف حساب‌ها و فروشگاه اینترنتی.</p>`,
+          <p class="small muted" style="margin-top:var(--sp-2)">حساب‌یار ۲.۰ بتا — طراحی تازه، موبایل‌اول و کاملاً واکنش‌گرا.</p>`,
         })}
       </div>`;
   },
